@@ -4,21 +4,32 @@
    Architecture allows easy Stockfish AI integration later.
 ═══════════════════════════════════════════════════════════ */
 
-/* ── FIREBASE INITIALIZATION ── */
-const firebaseConfig = {
-  apiKey: "AIzaSyBWCRgFXvIpjKq9mXJYouYp20hqv-jKyH0",
-  authDomain: "digichess-e858b.firebaseapp.com",
-  projectId: "digichess-e858b",
-  storageBucket: "digichess-e858b.firebasestorage.app",
-  messagingSenderId: "689026321934",
-  appId: "1:689026321934:web:a3656a9dcf581ab727b65f"
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
 /* ── GAME MODE ── (change to 'ai' for future Stockfish support) */
 let gameMode = "pvp"; // "pvp" | "ai" | "friend"
+
+/* ── FIREBASE CONFIG (will initialize after SDK loads) ── */
+let db = null;
+
+// Initialize Firebase when ready
+function initFirebase() {
+  try {
+    if (firebase && !firebase.apps.length) {
+      const firebaseConfig = {
+        apiKey: "AIzaSyBWCRgFXvIpjKq9mXJYouYp20hqv-jKyH0",
+        authDomain: "digichess-e858b.firebaseapp.com",
+        projectId: "digichess-e858b",
+        storageBucket: "digichess-e858b.firebasestorage.app",
+        messagingSenderId: "689026321934",
+        appId: "1:689026321934:web:a3656a9dcf581ab727b65f"
+      };
+      
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database();
+    }
+  } catch (err) {
+    console.error('Firebase initialization error:', err);
+  }
+}
 
 /* ══════════════════════════════════════════
    CONSTANTS & PIECE DEFINITIONS
@@ -1085,6 +1096,11 @@ function openFriendModal() {
 }
 
 function createFriendGame() {
+  if (!db) {
+    alert('Firebase not initialized. Please refresh the page.');
+    return;
+  }
+  
   playerId = generatePlayerId();
   friendJoinCode = generateJoinCode();
   myColor = 'w';
@@ -1108,6 +1124,11 @@ function createFriendGame() {
 }
 
 function joinFriendGame() {
+  if (!db) {
+    alert('Firebase not initialized. Please refresh the page.');
+    return;
+  }
+  
   const code = document.getElementById('friendJoinCode').value.trim();
   const errorEl = document.getElementById('joinError');
   
@@ -1148,6 +1169,11 @@ function joinFriendGame() {
 }
 
 function setupGameListener(code) {
+  if (!db) {
+    console.error('Firebase not initialized');
+    return;
+  }
+  
   friendGameRef = db.ref(`games/${code}`);
   
   if (gameListener) {
@@ -1181,16 +1207,20 @@ function setupGameListener(code) {
 }
 
 function syncMoveToFriend(notation) {
-  if (!friendGameRef || gameMode !== 'friend') return;
+  if (!db || !friendGameRef || gameMode !== 'friend') return;
   
-  const updates = {
-    board: board,
-    currentTurn: currentTurn,
-    moveHistory: moveHistory,
-    gameOver: gameOver
-  };
-  
-  friendGameRef.update(updates);
+  try {
+    const updates = {
+      board: board,
+      currentTurn: currentTurn,
+      moveHistory: moveHistory,
+      gameOver: gameOver
+    };
+    
+    friendGameRef.update(updates);
+  } catch (err) {
+    console.error('Error syncing move:', err);
+  }
 }
 
 function exitFriendGame() {
@@ -1224,5 +1254,15 @@ function copyJoinCode() {
 /* ══════════════════════════════════════════
    START
 ══════════════════════════════════════════ */
+// Generate a unique player ID
 playerId = generatePlayerId();
+
+// Initialize the game
 initGame();
+
+// Initialize Firebase asynchronously (non-blocking)
+setTimeout(() => {
+  if (typeof firebase !== 'undefined') {
+    initFirebase();
+  }
+}, 100);
