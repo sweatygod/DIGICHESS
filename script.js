@@ -85,6 +85,25 @@ let gameListener    = null;        // listener reference for unsubscribe
 let myColor         = null;        // 'w' or 'b' when playing with friend
 
 /* ══════════════════════════════════════════
+   MULTIPLAYER HELPER FUNCTIONS (defined early)
+══════════════════════════════════════════ */
+
+function generatePlayerId() {
+  return 'player_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+function generateJoinCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+function openFriendModal() {
+  document.getElementById('friendModal').style.display = 'flex';
+  document.getElementById('joinError').style.display = 'none';
+  document.getElementById('joinCodeDisplay').style.display = 'none';
+  document.getElementById('friendJoinCode').value = '';
+}
+
+/* ══════════════════════════════════════════
    INITIALIZATION
 ══════════════════════════════════════════ */
 function initGame() {
@@ -1077,23 +1096,8 @@ document.addEventListener('keydown', e => {
 });
 
 /* ══════════════════════════════════════════
-   MULTIPLAYER FUNCTIONS
+   ADDITIONAL MULTIPLAYER FUNCTIONS
 ══════════════════════════════════════════ */
-
-function generatePlayerId() {
-  return 'player_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
-}
-
-function generateJoinCode() {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-}
-
-function openFriendModal() {
-  document.getElementById('friendModal').style.display = 'flex';
-  document.getElementById('joinError').style.display = 'none';
-  document.getElementById('joinCodeDisplay').style.display = 'none';
-  document.getElementById('friendJoinCode').value = '';
-}
 
 function createFriendGame() {
   if (!db) {
