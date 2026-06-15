@@ -270,6 +270,9 @@ function renderCoords() {
 function onSquareClick(row, col) {
   if (gameOver) return;
 
+  // In online games, only allow moves on your own turn
+  if (gameMode === 'friend' && myColor !== currentTurn) return;
+
   const piece = board[row][col];
 
   // If a piece is already selected
