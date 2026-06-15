@@ -270,7 +270,8 @@
       <h2 class="modal-title" id="gameOverTitle">Game Over</h2>
       <p class="modal-sub" id="gameOverSub"></p>
       <div class="modal-actions">
-        <button class="btn btn-primary" onclick="newGame()">Play Again</button>
+        <button class="btn btn-primary" id="playAgainBtn" onclick="newGame()">Play Again</button>
+        <button class="btn btn-primary" id="rematchBtn" onclick="requestRematch()" style="display:none;">Request Rematch</button>
         <button class="btn btn-ghost" onclick="closeModal('gameOverModal')">Dismiss</button>
       </div>
     </div>

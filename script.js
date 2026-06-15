@@ -743,28 +743,59 @@ function triggerGameOver(reason, lastNotation) {
   gameOver = true;
   stopTimers();
 
-  const winner = currentTurn === 'w' ? 'Black' : 'White'; // who just moved wins
+  // In online mode use usernames, otherwise use colour names
+  const winnerColor  = currentTurn === 'w' ? 'Black' : 'White'; // who just moved wins
+  const loserColor   = currentTurn === 'w' ? 'White' : 'Black';
+
+  // joiner = White, host = Black
+  const winnerName   = gameMode === 'friend'
+    ? (winnerColor === 'White' ? joinerUsername : hostUsername) || winnerColor
+    : winnerColor;
+  const loserName    = gameMode === 'friend'
+    ? (loserColor  === 'White' ? joinerUsername : hostUsername) || loserColor
+    : loserColor;
 
   let title = '', sub = '', icon = '♚';
   if (reason === 'checkmate') {
-    title = `${winner} wins!`;
-    sub   = `Checkmate — ${winner} delivers the final blow.`;
-    icon  = winner === 'White' ? '♔' : '♚';
+    title = `${winnerName} wins!`;
+    sub   = `Checkmate — ${winnerName} delivers the final blow.`;
+    icon  = winnerColor === 'White' ? '♔' : '♚';
     playSound('checkmate');
   } else if (reason === 'stalemate') {
     title = 'Stalemate!';
     sub   = 'No legal moves — the game ends in a draw.';
     icon  = '♟';
   } else if (reason === 'resign') {
-    title = `${winner} wins by resignation!`;
-    sub   = `${currentTurn === 'w' ? 'White' : 'Black'} resigned the game.`;
-    icon  = winner === 'White' ? '♔' : '♚';
+    title = `${winnerName} wins!`;
+    sub   = `${loserName} resigned.`;
+    icon  = winnerColor === 'White' ? '♔' : '♚';
   } else if (reason === 'timeout') {
-    title = `${winner} wins on time!`;
+    title = `${winnerName} wins on time!`;
     sub   = 'The clock ran out.';
     icon  = '⏱';
   }
 
+  showGameOverModal(title, sub, icon);
+
+  // Sync game over state to Firebase for online games
+  if (gameMode === 'friend' && friendGameRef) {
+    friendGameRef.update({
+      gameOver:        true,
+      gameOverReason:  reason,
+      gameOverWinner:  winnerColor,   // 'White' or 'Black'
+      gameOverTitle:   title,
+      gameOverSub:     sub,
+      gameOverIcon:    icon,
+      rematchRequest:  null           // clear any prior rematch on new game-over
+    });
+  }
+}
+
+/**
+ * Renders the game-over modal. Pass rematchPending=true when the other player
+ * has already requested a rematch, so the button says "Accept Rematch".
+ */
+function showGameOverModal(title, sub, icon, rematchPending = false) {
   setTimeout(() => {
     document.getElementById('gameOverIcon').textContent  = icon;
     document.getElementById('gameOverTitle').textContent = title;
@@ -772,6 +803,25 @@ function triggerGameOver(reason, lastNotation) {
     document.getElementById('gameOverModal').style.display = 'flex';
     document.getElementById('infoStatus').textContent    = 'Ended';
     document.getElementById('infoStatus').className      = 'status-ended';
+
+    const playAgainBtn = document.getElementById('playAgainBtn');
+    const rematchBtn   = document.getElementById('rematchBtn');
+    if (gameMode === 'friend') {
+      if (playAgainBtn) playAgainBtn.style.display = 'none';
+      if (rematchBtn) {
+        rematchBtn.style.display = 'inline-flex';
+        if (rematchPending) {
+          rematchBtn.textContent = 'Accept Rematch';
+          rematchBtn.onclick = acceptRematch;
+        } else {
+          rematchBtn.textContent = 'Request Rematch';
+          rematchBtn.onclick = requestRematch;
+        }
+      }
+    } else {
+      if (playAgainBtn) playAgainBtn.style.display = 'inline-flex';
+      if (rematchBtn)   rematchBtn.style.display   = 'none';
+    }
   }, 300);
 }
 
@@ -809,7 +859,6 @@ function resignGame() {
   gameOver = true;
   updateStatusBar();
 }
-
 /* ══════════════════════════════════════════
    FLIP BOARD
 ══════════════════════════════════════════ */
@@ -2452,12 +2501,49 @@ function setupGameListener(code, closeOnStart) {
     // Restore lastMove so the opponent's move gets highlighted
     if (gameData.lastMove) {
       lastMove = gameData.lastMove;
+    } else {
+      lastMove = null;
+    }
+
+    // ── Rematch accepted: game was reset — close modal and restart ──
+    if (!gameData.gameOver && !gameData.gameOverTitle) {
+      const modalOpen = document.getElementById('gameOverModal').style.display !== 'none';
+      if (modalOpen) {
+        closeModal('gameOverModal');
+        isFlipped = (myColor === 'w');
+        initGame();
+        updateGameInfo();
+        return;
+      }
     }
 
     renderBoard();
     renderMoveHistory();
     updateStatusBar();
     updateGameInfo();
+
+    // Show game over modal if opponent triggered it (resign/checkmate synced)
+    if (gameData.gameOver && gameData.gameOverTitle) {
+      const modalAlreadyOpen = document.getElementById('gameOverModal').style.display !== 'none';
+      if (!modalAlreadyOpen) {
+        // Opponent triggered game over — show modal on our screen too
+        const rematchPending = !!(gameData.rematchRequest && gameData.rematchRequest !== currentUser?.uid);
+        showGameOverModal(
+          gameData.gameOverTitle,
+          gameData.gameOverSub   || '',
+          gameData.gameOverIcon  || '♚',
+          rematchPending
+        );
+        stopTimers();
+      } else if (gameData.rematchRequest && gameData.rematchRequest !== currentUser?.uid) {
+        // Modal is already open — just flip the button to "Accept Rematch"
+        const rematchBtn = document.getElementById('rematchBtn');
+        if (rematchBtn && rematchBtn.style.display !== 'none') {
+          rematchBtn.textContent = 'Accept Rematch';
+          rematchBtn.onclick = acceptRematch;
+        }
+      }
+    }
   });
 }
 
@@ -2498,6 +2584,56 @@ function exitFriendGame() {
   joinerUsername   = null;
   opponentUsername = null;
   newGame();
+}
+
+/* ══════════════════════════════════════════
+   REMATCH SYSTEM
+══════════════════════════════════════════ */
+
+function requestRematch() {
+  if (!friendGameRef || !currentUser) return;
+  // Don't close the modal — just update the button to show we're waiting
+  const rematchBtn = document.getElementById('rematchBtn');
+  if (rematchBtn) {
+    rematchBtn.textContent = 'Waiting for opponent…';
+    rematchBtn.disabled    = true;
+  }
+  friendGameRef.update({ rematchRequest: currentUser.uid });
+}
+
+function acceptRematch() {
+  if (!friendGameRef) return;
+  // Clear the rematch request and reset game state in Firebase
+  const resetData = {
+    board:          boardToFirebase(INITIAL_BOARD),
+    currentTurn:    'w',
+    moveHistory:    [],
+    gameOver:       false,
+    gameOverTitle:  null,
+    gameOverSub:    null,
+    gameOverIcon:   null,
+    gameOverReason: null,
+    gameOverWinner: null,
+    rematchRequest: null,
+    lastMove:       null
+  };
+  friendGameRef.update(resetData).then(() => {
+    closeModal('gameOverModal');
+    isFlipped = (myColor === 'w');
+    initGame();
+    updateGameInfo();
+  });
+}
+
+function declineRematch() {
+  if (friendGameRef) friendGameRef.update({ rematchRequest: null });
+  // Re-enable the request button in case they want to request instead
+  const rematchBtn = document.getElementById('rematchBtn');
+  if (rematchBtn) {
+    rematchBtn.textContent = 'Request Rematch';
+    rematchBtn.onclick     = requestRematch;
+    rematchBtn.disabled    = false;
+  }
 }
 
 function copyJoinCode() {
