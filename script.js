@@ -759,13 +759,24 @@ function triggerGameOver(reason, lastNotation) {
   const winnerColor  = currentTurn === 'w' ? 'Black' : 'White'; // who just moved wins
   const loserColor   = currentTurn === 'w' ? 'White' : 'Black';
 
-  // joiner = White, host = Black
-  const winnerName   = gameMode === 'friend'
-    ? (winnerColor === 'White' ? joinerUsername : hostUsername) || winnerColor
-    : winnerColor;
-  const loserName    = gameMode === 'friend'
-    ? (loserColor  === 'White' ? joinerUsername : hostUsername) || loserColor
-    : loserColor;
+  // Resolve display names using myColor so it works regardless of who is host/joiner
+  function nameForColor(color) {
+    if (gameMode !== 'friend') return color;
+    if (myColor === 'w') {
+      // I'm white: white=me, black=opponent
+      if (color === 'White') return currentUsername || color;
+      return opponentUsername || hostUsername || color;
+    } else if (myColor === 'b') {
+      // I'm black: black=me, white=opponent
+      if (color === 'Black') return currentUsername || color;
+      return opponentUsername || joinerUsername || color;
+    }
+    // Fallback: joiner=white, host=black
+    return color === 'White' ? (joinerUsername || color) : (hostUsername || color);
+  }
+
+  const winnerName = nameForColor(winnerColor);
+  const loserName  = nameForColor(loserColor);
 
   let title = '', sub = '', icon = '♚';
   if (reason === 'checkmate') {
@@ -974,11 +985,25 @@ function updateGameInfo() {
   // Player name rows in game info
   const playerNamesSection = document.getElementById('playerNamesSection');
   if (gameMode === 'friend' && hostUsername && joinerUsername) {
-    // joiner = white (bottom), host = black (top)
-    const whitePlayer = joinerUsername;
-    const blackPlayer = hostUsername;
-    const myName = currentUsername;
+    // Determine which player is white and which is black based on hostColor.
+    // In the standard flow host=black, joiner=white. But if the host chose white
+    // via the color picker, it's flipped. Use myColor + currentUsername to sort.
+    let whitePlayer, blackPlayer;
+    if (myColor === 'w') {
+      // I am white — currentUsername is the white player
+      whitePlayer = currentUsername;
+      blackPlayer = (hostUsername === currentUsername) ? joinerUsername : hostUsername;
+    } else if (myColor === 'b') {
+      // I am black — currentUsername is the black player
+      blackPlayer = currentUsername;
+      whitePlayer = (joinerUsername === currentUsername) ? hostUsername : joinerUsername;
+    } else {
+      // Local game fallback
+      whitePlayer = joinerUsername;
+      blackPlayer = hostUsername;
+    }
 
+    const myName = currentUsername;
     document.getElementById('infoWhitePlayer').textContent = whitePlayer;
     document.getElementById('infoBlackPlayer').textContent = blackPlayer;
 
@@ -2509,7 +2534,17 @@ function findMatch() {
 
         if (!result.committed) return;  // another player got there first
 
-        const opponentUsername = result.snapshot.val()?.username || 'Opponent';
+        const opponentData    = result.snapshot.val() || {};
+        const opponentName    = opponentData.username || 'Opponent';
+        const opponentUidVal  = snap.key; // same as opponentUid
+
+        // Make sure we have our own username — fetch from DB if currentUsername is null
+        let myUsername = currentUsername;
+        if (!myUsername) {
+          const nameSnap = await db.ref(`users/${uid}/username`).once('value');
+          myUsername = nameSnap.val() || 'Player';
+          currentUsername = myUsername;
+        }
 
         // Also remove ourselves from the queue
         await myRef.remove();
@@ -2522,12 +2557,12 @@ function findMatch() {
         gameMode       = 'friend';
         friendJoinCode = code;
         playerId       = uid;
-        hostUsername   = currentUsername;
-        joinerUsername = opponentUsername;
+        hostUsername   = myUsername;
+        joinerUsername = opponentName;
 
         const gameData = {
           players:     { host: uid },
-          usernames:   { host: currentUsername, joiner: opponentUsername },
+          usernames:   { host: myUsername, joiner: opponentName },
           colors:      { [uid]: 'b' },
           hostColor:   'b',
           timeControl: QP_TIME_SECS,
@@ -2778,6 +2813,14 @@ function setupGameListener(code, closeOnStart) {
       // White (joiner): isFlipped = false → white at bottom
       // Black (host):   isFlipped = true  → black at bottom
       isFlipped = (localMyColor === 'b');
+
+      // Use Firebase as the authoritative source for usernames
+      if (gameData.usernames) {
+        hostUsername   = gameData.usernames.host   || hostUsername;
+        joinerUsername = gameData.usernames.joiner || joinerUsername;
+      }
+      // Derive opponent name from our color
+      opponentUsername = localMyColor === 'w' ? hostUsername : joinerUsername;
 
       // Apply time control from game data (quick play sets this to 600)
       if (gameData.timeControl != null) {
