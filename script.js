@@ -2021,6 +2021,7 @@ async function acceptMatchRequest(reqKey, fromUid, fromUsername) {
   // We reuse the existing friend game flow — just auto-create and share code
   // by opening the friend modal pre-filled as host
   myColor        = 'b';
+  isFlipped      = true;   // host is black → black at bottom
   hostUsername   = currentUsername;
   joinerUsername = fromUsername;
 
@@ -2090,6 +2091,7 @@ function startMatchAcceptedListener() {
     friendJoinCode = data.joinCode;
     playerId       = currentUser.uid;
     myColor        = 'w';
+    isFlipped      = false;  // sender is white → white at bottom
     gameMode       = 'friend';
     joinerUsername = currentUsername;
     hostUsername   = data.acceptedBy;
@@ -2415,6 +2417,7 @@ function createFriendGame() {
   playerId = currentUser.uid;
   friendJoinCode = generateJoinCode();
   myColor = 'b';   // host plays black
+  isFlipped = true; // black at bottom for host
   gameMode = 'friend';
   hostUsername = currentUsername;
 
@@ -2468,7 +2471,8 @@ function joinFriendGame() {
 
     playerId       = currentUser.uid;
     friendJoinCode = code;
-    myColor        = 'w';   // joiner plays white (bottom of board)
+    myColor        = 'w';   // joiner plays white
+    isFlipped      = false; // white at bottom for joiner
     gameMode       = 'friend';
     joinerUsername = currentUsername;
     hostUsername   = gameData.usernames ? gameData.usernames.host : 'Opponent';
@@ -2491,6 +2495,10 @@ function setupGameListener(code, closeOnStart) {
   friendGameRef = db.ref(`games/${code}`);
   if (gameListener) friendGameRef.off('value', gameListener);
 
+  // Capture myColor at the time the listener is set up so async Firebase
+  // callbacks always use the correct value, even if the global is later changed.
+  const localMyColor = myColor;
+
   let gameStarted = false;
 
   gameListener = friendGameRef.on('value', snapshot => {
@@ -2503,7 +2511,7 @@ function setupGameListener(code, closeOnStart) {
     if (gameData.usernames) {
       hostUsername   = gameData.usernames.host   || hostUsername;
       joinerUsername = gameData.usernames.joiner || joinerUsername;
-      opponentUsername = myColor === 'w' ? hostUsername : joinerUsername;
+      opponentUsername = localMyColor === 'w' ? hostUsername : joinerUsername;
     }
 
     // ── Waiting for second player ──
@@ -2515,7 +2523,7 @@ function setupGameListener(code, closeOnStart) {
 
       // White (joiner): isFlipped = false → white at bottom
       // Black (host):   isFlipped = true  → black at bottom
-      isFlipped = (myColor === 'b');
+      isFlipped = (localMyColor === 'b');
 
       gameMode = 'friend';
       initGame();      // resets board state and renders
@@ -2550,7 +2558,7 @@ function setupGameListener(code, closeOnStart) {
       const modalOpen = document.getElementById('gameOverModal').style.display !== 'none';
       if (modalOpen) {
         closeModal('gameOverModal');
-        isFlipped = (myColor === 'b');
+        isFlipped = (localMyColor === 'b');
         initGame();
         updateGameInfo();
         return;
