@@ -1348,12 +1348,30 @@ body {
 ══════════════════════════════════════════ */
 .messages-modal {
   width: 100%;
-  max-width: 420px;
+  max-width: var(--board-max);
+  width: min(var(--board-max), calc(100vw - 40px));
+  height: min(var(--board-max), calc(100vh - 120px));
   padding: 24px;
-  min-height: 400px;
   display: flex;
   flex-direction: column;
 }
+
+#dmConversationList {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#dmThreadList {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#dmThreadList::-webkit-scrollbar { width: 4px; }
+#dmThreadList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .dm-thread-row {
   display: flex;
@@ -1400,6 +1418,7 @@ body {
 #dmChatView {
   flex-direction: column;
   flex: 1;
+  min-height: 0;
 }
 
 .dm-chat-header {
@@ -1409,6 +1428,7 @@ body {
   margin-bottom: 14px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .dm-chat-title {
@@ -1418,6 +1438,9 @@ body {
 }
 
 #dmChatMessages {
+  flex: 1;
+  max-height: none;
+}
   max-height: 300px;
   flex: 1;
 }
