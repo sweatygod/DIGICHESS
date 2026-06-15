@@ -1637,17 +1637,8 @@ async function loadFriendsModal() {
         <span class="friend-avatar">${fname.charAt(0).toUpperCase()}</span>
         <span class="friend-name">${fname}</span>
         <div class="friend-actions">
+          <button class="btn btn-sm btn-primary" onclick="sendMatchRequest('${fuid}','${fname}')">Challenge</button>
           <button class="btn btn-sm btn-ghost btn-danger-ghost" onclick="removeFriend('${fuid}','${fname}')">Remove</button>
-          <div class="friend-more-wrap">
-            <button class="friend-more-btn" title="More options" onclick="toggleFriendMenu(event, '${fuid}')">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z"/></svg>
-            </button>
-            <div class="friend-more-menu" id="friendMenu_${fuid}" style="display:none;">
-              <button class="friend-more-item" onclick="sendMatchRequest('${fuid}','${fname}')">
-                ♟ Challenge
-              </button>
-            </div>
-          </div>
         </div>
       `;
       friendsList.appendChild(row);
