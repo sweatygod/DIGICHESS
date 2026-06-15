@@ -1439,14 +1439,19 @@ function signOutUser() {
 function openAccountModal() {
   document.getElementById('profileDropdown').style.display = 'none';
   // Reset all fields and messages
-  ['newUsernameInput','currentPasswordInput','newPasswordInput','confirmPasswordInput','deletePasswordInput']
+  ['newUsernameInput','newPasswordInput','confirmPasswordInput']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   ['changeUsernameError','changeUsernameSuccess','changePasswordError','changePasswordSuccess','deleteAccountError']
     .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   ['changeUsernameBtn','changePasswordBtn','deleteAccountBtn']
-    .forEach(id => { const el = document.getElementById(id); if (el) { el.disabled = false; el.textContent = { changeUsernameBtn:'Update Username', changePasswordBtn:'Update Password', deleteAccountBtn:'Delete My Account' }[id]; }});
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.disabled = false;
+        el.textContent = { changeUsernameBtn:'Update Username', changePasswordBtn:'Update Password', deleteAccountBtn:'Delete Account' }[id];
+      }
+    });
 
-  // Pre-fill current username hint
   const sub = document.getElementById('accountModalSub');
   if (sub) sub.textContent = `Signed in as: ${currentUsername}`;
 
@@ -1461,21 +1466,13 @@ async function handleChangeUsername() {
 
   errorEl.style.display = successEl.style.display = 'none';
 
-  if (newUsername.length < 3) {
-    return showAuthError(errorEl, 'Username must be at least 3 characters.');
-  }
-  if (!/^[a-z0-9_]+$/.test(newUsername)) {
-    return showAuthError(errorEl, 'Only letters, numbers, and underscores allowed.');
-  }
-  if (newUsername === currentUsername) {
-    return showAuthError(errorEl, 'That is already your username.');
-  }
+  if (newUsername.length < 3) return showAuthError(errorEl, 'Username must be at least 3 characters.');
+  if (!/^[a-z0-9_]+$/.test(newUsername)) return showAuthError(errorEl, 'Only letters, numbers, and underscores allowed.');
+  if (newUsername === currentUsername) return showAuthError(errorEl, 'That is already your username.');
 
-  btn.disabled = true;
-  btn.textContent = 'Updating…';
+  btn.disabled = true; btn.textContent = 'Updating…';
 
   try {
-    // Check availability
     const snap = await db.ref(`usernames/${newUsername}`).once('value');
     if (snap.exists()) {
       showAuthError(errorEl, 'That username is already taken.');
@@ -1483,15 +1480,14 @@ async function handleChangeUsername() {
       return;
     }
 
-    const uid      = currentUser.uid;
+    const uid         = currentUser.uid;
     const oldUsername = currentUsername;
-    const updates  = {};
+    const updates     = {};
+    updates[`usernames/${oldUsername}`] = null;
+    updates[`usernames/${newUsername}`] = uid;
+    updates[`users/${uid}/username`]    = newUsername;
 
-    // Remove old username entry, add new one
-    updates[`usernames/${oldUsername}`]    = null;
-    updates[`usernames/${newUsername}`]    = uid;
-    updates[`users/${uid}/username`]       = newUsername;
-    // Only update Firebase Auth email for email/password accounts — not Google
+    // Only update the internal auth email for email/password accounts
     if (!currentUser.providerData.some(p => p.providerId === 'google.com')) {
       await firebase.auth().currentUser.updateEmail(`${newUsername}@digichess.com`);
     }
@@ -1499,8 +1495,7 @@ async function handleChangeUsername() {
 
     currentUsername = newUsername;
     updateAccountUI(newUsername);
-
-    successEl.textContent  = 'Username updated successfully!';
+    successEl.textContent  = 'Username updated!';
     successEl.style.display = 'block';
     document.getElementById('newUsernameInput').value = '';
     document.getElementById('accountModalSub').textContent = `Signed in as: ${newUsername}`;
@@ -1513,75 +1508,69 @@ async function handleChangeUsername() {
 }
 
 async function handleChangePassword() {
-  const currentPw  = document.getElementById('currentPasswordInput').value;
-  const newPw      = document.getElementById('newPasswordInput').value;
-  const confirmPw  = document.getElementById('confirmPasswordInput').value;
-  const errorEl    = document.getElementById('changePasswordError');
-  const successEl  = document.getElementById('changePasswordSuccess');
-  const btn        = document.getElementById('changePasswordBtn');
+  const newPw     = document.getElementById('newPasswordInput').value;
+  const confirmPw = document.getElementById('confirmPasswordInput').value;
+  const errorEl   = document.getElementById('changePasswordError');
+  const successEl = document.getElementById('changePasswordSuccess');
+  const btn       = document.getElementById('changePasswordBtn');
 
   errorEl.style.display = successEl.style.display = 'none';
 
-  if (!currentPw) return showAuthError(errorEl, 'Enter your current password.');
-  if (newPw.length < 6) return showAuthError(errorEl, 'New password must be at least 6 characters.');
-  if (newPw !== confirmPw) return showAuthError(errorEl, 'New passwords do not match.');
+  if (newPw.length < 6) return showAuthError(errorEl, 'Password must be at least 6 characters.');
+  if (newPw !== confirmPw) return showAuthError(errorEl, 'Passwords do not match.');
+
+  // Google accounts don't have a password to change
+  if (currentUser.providerData.some(p => p.providerId === 'google.com')) {
+    return showAuthError(errorEl, 'Google accounts do not use a password.');
+  }
 
   btn.disabled = true; btn.textContent = 'Updating…';
 
   try {
-    // Re-authenticate first (Firebase requires this for sensitive ops)
-    const email      = `${currentUsername}@digichess.com`;
-    const credential = firebase.auth.EmailAuthProvider.credential(email, currentPw);
-    await firebase.auth().currentUser.reauthenticateWithCredential(credential);
     await firebase.auth().currentUser.updatePassword(newPw);
-
-    successEl.textContent  = 'Password updated successfully!';
+    successEl.textContent  = 'Password updated!';
     successEl.style.display = 'block';
-    ['currentPasswordInput','newPasswordInput','confirmPasswordInput']
-      .forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('newPasswordInput').value    = '';
+    document.getElementById('confirmPasswordInput').value = '';
   } catch (err) {
+    // If session is stale Firebase throws requires-recent-login
+    // — sign them out gracefully so they can sign back in
+    if (err.code === 'auth/requires-recent-login') {
+      showAuthError(errorEl, 'Your session has expired. Please sign out and sign back in, then try again.');
+    } else {
+      showAuthError(errorEl, friendlyAuthError(err.code));
+    }
     console.error('Change password error:', err);
-    showAuthError(errorEl, friendlyAuthError(err.code));
   }
 
   btn.disabled = false; btn.textContent = 'Update Password';
 }
 
 async function handleDeleteAccount() {
-  const password = document.getElementById('deletePasswordInput').value;
-  const errorEl  = document.getElementById('deleteAccountError');
-  const btn      = document.getElementById('deleteAccountBtn');
-
+  const errorEl = document.getElementById('deleteAccountError');
+  const btn     = document.getElementById('deleteAccountBtn');
   errorEl.style.display = 'none';
 
-  if (!password) return showAuthError(errorEl, 'Enter your password to confirm deletion.');
-
-  if (!confirm(`Are you sure you want to permanently delete your account "${currentUsername}"? This cannot be undone.`)) return;
+  if (!confirm(`Delete your account "${currentUsername}"?\n\nAll your data will be permanently lost. This cannot be undone.`)) return;
 
   btn.disabled = true; btn.textContent = 'Deleting…';
 
   try {
-    const email      = `${currentUsername}@digichess.com`;
-    const credential = firebase.auth.EmailAuthProvider.credential(email, password);
-    await firebase.auth().currentUser.reauthenticateWithCredential(credential);
-
     const uid = currentUser.uid;
-
-    // Remove all user data from DB
     const updates = {};
-    updates[`users/${uid}`]              = null;
+    updates[`users/${uid}`]                = null;
     updates[`usernames/${currentUsername}`] = null;
     await db.ref().update(updates);
-
-    // Delete Firebase Auth account
     await firebase.auth().currentUser.delete();
-
     closeModal('accountModal');
-    // onAuthStateChanged will fire and update the UI automatically
   } catch (err) {
+    if (err.code === 'auth/requires-recent-login') {
+      showAuthError(errorEl, 'Your session has expired. Please sign out and sign back in, then try again.');
+    } else {
+      showAuthError(errorEl, friendlyAuthError(err.code));
+    }
     console.error('Delete account error:', err);
-    showAuthError(errorEl, friendlyAuthError(err.code));
-    btn.disabled = false; btn.textContent = 'Delete My Account';
+    btn.disabled = false; btn.textContent = 'Delete Account';
   }
 }
 
