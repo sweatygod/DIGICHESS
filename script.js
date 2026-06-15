@@ -18,6 +18,7 @@ function initFirebase() {
         apiKey: "AIzaSyBWCRgFXvIpjKq9mXJYouYp20hqv-jKyH0",
         authDomain: "digichess-e858b.firebaseapp.com",
         projectId: "digichess-e858b",
+        databaseURL: "https://digichess-e858b-default-rtdb.asia-southeast1.firebasedatabase.app",
         storageBucket: "digichess-e858b.firebasestorage.app",
         messagingSenderId: "689026321934",
         appId: "1:689026321934:web:a3656a9dcf581ab727b65f"
