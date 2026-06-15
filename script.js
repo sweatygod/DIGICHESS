@@ -1439,7 +1439,7 @@ function signOutUser() {
 function openAccountModal() {
   document.getElementById('profileDropdown').style.display = 'none';
   // Reset all fields and messages
-  ['newUsernameInput','newPasswordInput','confirmPasswordInput']
+  ['newUsernameInput','newPasswordInput']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   ['changeUsernameError','changeUsernameSuccess','changePasswordError','changePasswordSuccess','deleteAccountError']
     .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
@@ -1508,18 +1508,15 @@ async function handleChangeUsername() {
 }
 
 async function handleChangePassword() {
-  const newPw     = document.getElementById('newPasswordInput').value;
-  const confirmPw = document.getElementById('confirmPasswordInput').value;
-  const errorEl   = document.getElementById('changePasswordError');
+  const newPw   = document.getElementById('newPasswordInput').value;
+  const errorEl = document.getElementById('changePasswordError');
   const successEl = document.getElementById('changePasswordSuccess');
-  const btn       = document.getElementById('changePasswordBtn');
+  const btn     = document.getElementById('changePasswordBtn');
 
   errorEl.style.display = successEl.style.display = 'none';
 
   if (newPw.length < 6) return showAuthError(errorEl, 'Password must be at least 6 characters.');
-  if (newPw !== confirmPw) return showAuthError(errorEl, 'Passwords do not match.');
 
-  // Google accounts don't have a password to change
   if (currentUser.providerData.some(p => p.providerId === 'google.com')) {
     return showAuthError(errorEl, 'Google accounts do not use a password.');
   }
@@ -1530,11 +1527,8 @@ async function handleChangePassword() {
     await firebase.auth().currentUser.updatePassword(newPw);
     successEl.textContent  = 'Password updated!';
     successEl.style.display = 'block';
-    document.getElementById('newPasswordInput').value    = '';
-    document.getElementById('confirmPasswordInput').value = '';
+    document.getElementById('newPasswordInput').value = '';
   } catch (err) {
-    // If session is stale Firebase throws requires-recent-login
-    // — sign them out gracefully so they can sign back in
     if (err.code === 'auth/requires-recent-login') {
       showAuthError(errorEl, 'Your session has expired. Please sign out and sign back in, then try again.');
     } else {
