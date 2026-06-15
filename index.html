@@ -407,8 +407,8 @@
       <div class="account-divider"></div>
 
       <!-- Sign Out -->
-      <div class="account-section">
-        <button class="btn btn-ghost account-action-btn" onclick="signOutUser(); closeModal('accountModal');">
+      <div class="account-section" style="text-align:center;">
+        <button class="btn btn-ghost" onclick="signOutUser(); closeModal('accountModal');">
           Sign Out
         </button>
       </div>
@@ -417,7 +417,6 @@
 
       <!-- Delete Account -->
       <div class="account-section">
-        <h3 class="account-section-title account-section-danger">Danger Zone</h3>
         <div id="deleteAccountError" class="auth-error" style="display:none;"></div>
         <button class="btn btn-danger account-action-btn" id="deleteAccountBtn" onclick="handleDeleteAccount()">Delete Account</button>
       </div>
