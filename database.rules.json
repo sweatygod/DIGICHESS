@@ -11,6 +11,7 @@
       ".write": "auth != null"
     },
     "games": {
+      ".indexOn": ["players/joiner", "players/host"],
       "$gameId": {
         ".read": "auth != null",
         ".write": "auth != null && (
@@ -23,7 +24,8 @@
     "matchmaking": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth != null && ($uid === auth.uid || !data.exists())"
+        ".read": "auth != null",
+        ".write": "auth != null"
       }
     },
     "matchmakingPairs": {
