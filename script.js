@@ -2468,6 +2468,7 @@ function boardToFirebase(b) {
 }
 
 function boardFromFirebase(raw) {
+  if (!raw) return null;
   // raw may be a plain object (Firebase converts arrays to objects keyed by index)
   const rows = Array.isArray(raw) ? raw : Object.keys(raw).sort((a,b) => Number(a)-Number(b)).map(k => raw[k]);
   return rows.map(row => {
@@ -2520,7 +2521,9 @@ function gameStateForFirebase() {
     castlingRights:  castlingRights,
     capturedByWhite: capturedByWhite,
     capturedByBlack: capturedByBlack,
-    halfMoveClock:   halfMoveClock
+    halfMoveClock:   halfMoveClock,
+    lastMoveBy:      currentUser?.uid || null,
+    updatedAt:       firebase.database.ServerValue.TIMESTAMP
   };
 }
 
@@ -3138,10 +3141,12 @@ function syncMoveToFriend(notation) {
   if (!friendGameRef) { console.warn('[SYNC] no friendGameRef'); return; }
   if (gameMode !== 'friend') { console.warn('[SYNC] gameMode is', gameMode); return; }
 
-  // Only sync after our own move (the turn just switched away from us)
-  const weJustMoved = (myColor === 'w' && currentTurn === 'b') || (myColor === 'b' && currentTurn === 'w');
-  console.log(`[SYNC] myColor=${myColor} currentTurn=${currentTurn} weJustMoved=${weJustMoved}`);
-  if (!weJustMoved) { console.warn('[SYNC] skipped — not our move'); return; }
+  // finishMove() calls this only after a local move has been executed and the
+  // turn has switched. Do not let a stale color value silently drop the move.
+  const movedColor = currentTurn === 'w' ? 'b' : 'w';
+  if (myColor && myColor !== movedColor) {
+    console.warn(`[SYNC] color mismatch — myColor=${myColor}, movedColor=${movedColor}; syncing local move anyway`);
+  }
 
   const updates = gameStateForFirebase();
   console.log('[SYNC] writing to Firebase, currentTurn in payload:', updates.currentTurn);
