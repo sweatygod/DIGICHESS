@@ -151,6 +151,9 @@ let mirroredInGameFriendAccepts = new Set();
 let mirroredInGameFriendRemovals = new Set();
 let recordedGameStats = new Set();
 let recordedFriendStats = new Set();
+let onlinePositionSnapshots = [];
+let onlineReviewIndex = null;
+let onlineLiveSnapshot = null;
 
 /* ══════════════════════════════════════════
    MULTIPLAYER HELPER FUNCTIONS (defined early)
@@ -233,6 +236,11 @@ function requireAccountThen(action) {
 function initGame() {
   aiThinking = false;
   stockfishPending = null;
+  if (gameMode !== 'friend') {
+    onlinePositionSnapshots = [];
+    onlineReviewIndex = null;
+    onlineLiveSnapshot = null;
+  }
   board = INITIAL_BOARD.map(r => [...r]);
   currentTurn    = 'w';
   selectedSq     = null;
@@ -252,6 +260,7 @@ function initGame() {
   updateCapturedPieces();
   updateGameInfo();
   updateAISettingsVisibility();
+  updateOnlineReviewControls();
   if (gameMode === 'ai') {
     setAIStatus('Human plays White. Stockfish plays Black.');
     ensureStockfish();
@@ -372,6 +381,7 @@ function renderCoords() {
 ══════════════════════════════════════════ */
 function onSquareClick(row, col) {
   if (gameOver) return;
+  if (onlineReviewIndex !== null) return;
 
   // In online games, only allow moves on your own turn
   if (gameMode === 'friend' && myColor !== currentTurn) return;
@@ -544,6 +554,7 @@ function finishMove(notation) {
   
   // Sync to Firebase if playing with friend
   if (gameMode === 'friend') {
+    rememberOnlinePositionSnapshot();
     syncMoveToFriend(notation);
   }
 }
@@ -1047,6 +1058,11 @@ function showGameOverModal(title, sub, icon, rematchPending = false) {
    UNDO
 ══════════════════════════════════════════ */
 function undoMove() {
+  if (gameMode === 'friend') {
+    stepOnlineBoardReviewBack();
+    return;
+  }
+
   if (stateHistory.length === 0) return;
   const prev = stateHistory.pop();
   board           = prev.board;
@@ -1064,8 +1080,107 @@ function undoMove() {
   renderBoard();
   renderMoveHistory();
   updateStatusBar();
+  if (onlineReviewIndex !== null) {
+    const statusMsg = document.getElementById('statusMsg');
+    if (statusMsg) {
+      statusMsg.textContent = `Viewing move ${onlineReviewIndex} of ${onlinePositionSnapshots.length - 1}`;
+      statusMsg.className = 'status-message normal';
+    }
+  }
   updateCapturedPieces();
   updateGameInfo();
+}
+
+function cloneBoardState(b) {
+  return b.map(row => [...row]);
+}
+
+function createBoardSnapshot() {
+  return {
+    board: cloneBoardState(board),
+    currentTurn,
+    moveHistory: [...moveHistory],
+    lastMove: lastMove ? { from: { ...lastMove.from }, to: { ...lastMove.to } } : null,
+    enPassantSq: enPassantSq ? { ...enPassantSq } : null,
+    castlingRights: { ...castlingRights },
+    capturedByWhite: [...capturedByWhite],
+    capturedByBlack: [...capturedByBlack],
+    halfMoveClock,
+    gameOver
+  };
+}
+
+function applyBoardSnapshotForDisplay(snapshot) {
+  if (!snapshot) return;
+  board           = cloneBoardState(snapshot.board);
+  currentTurn     = snapshot.currentTurn;
+  moveHistory     = [...snapshot.moveHistory];
+  lastMove        = snapshot.lastMove ? { from: { ...snapshot.lastMove.from }, to: { ...snapshot.lastMove.to } } : null;
+  enPassantSq     = snapshot.enPassantSq ? { ...snapshot.enPassantSq } : null;
+  castlingRights  = { ...snapshot.castlingRights };
+  capturedByWhite = [...snapshot.capturedByWhite];
+  capturedByBlack = [...snapshot.capturedByBlack];
+  halfMoveClock   = snapshot.halfMoveClock;
+  gameOver        = snapshot.gameOver;
+  selectedSq      = null;
+  legalMoves      = [];
+  renderBoard();
+  renderMoveHistory();
+  updateStatusBar();
+  updateCapturedPieces();
+  updateGameInfo();
+}
+
+function rememberOnlinePositionSnapshot() {
+  if (gameMode !== 'friend') return;
+  const snapshot = createBoardSnapshot();
+  onlineLiveSnapshot = snapshot;
+  onlinePositionSnapshots[moveHistory.length] = snapshot;
+  onlinePositionSnapshots = onlinePositionSnapshots.slice(0, moveHistory.length + 1);
+  updateOnlineReviewControls();
+}
+
+function stepOnlineBoardReviewBack() {
+  if (gameMode !== 'friend' || onlinePositionSnapshots.length <= 1) return;
+  if (onlineReviewIndex === null) {
+    onlineLiveSnapshot = createBoardSnapshot();
+    onlineReviewIndex = Math.max(0, moveHistory.length - 1);
+  } else {
+    onlineReviewIndex = Math.max(0, onlineReviewIndex - 1);
+  }
+
+  const snapshot = onlinePositionSnapshots[onlineReviewIndex];
+  if (!snapshot) {
+    resetOnlineBoardView();
+    return;
+  }
+  stopTimers();
+  applyBoardSnapshotForDisplay(snapshot);
+  updateOnlineReviewControls();
+}
+
+function resetOnlineBoardView() {
+  if (onlineReviewIndex === null && gameMode !== 'friend') return;
+  onlineReviewIndex = null;
+  if (onlineLiveSnapshot) applyBoardSnapshotForDisplay(onlineLiveSnapshot);
+  if (gameMode === 'friend' && !gameOver && timerLimitSecs > 0) startTimers();
+  updateOnlineReviewControls();
+}
+
+function exitOnlineBoardReviewForRemoteUpdate() {
+  const wasReviewing = onlineReviewIndex !== null;
+  onlineReviewIndex = null;
+  updateOnlineReviewControls();
+  return wasReviewing;
+}
+
+function updateOnlineReviewControls() {
+  const resetBtn = document.getElementById('resetBoardViewBtn');
+  if (resetBtn) {
+    resetBtn.style.display = gameMode === 'friend' ? 'inline-flex' : 'none';
+    resetBtn.disabled = onlineReviewIndex === null;
+  }
+  document.body?.classList.toggle('online-reviewing-board', onlineReviewIndex !== null);
 }
 
 /* ══════════════════════════════════════════
@@ -2072,7 +2187,11 @@ async function publishLeaderboardStats(stats = null) {
 
 function recordOnlineGameStatsIfNeeded(gameData) {
   if (!currentUser || currentUser.isAnonymous || !gameData?.gameOver || !gameData.gameOverReason) return;
+  if (gameMode !== 'friend') return;
   if (!friendJoinCode || !myColor) return;
+  const players = gameData.players || {};
+  if (players.host !== currentUser.uid && players.joiner !== currentUser.uid) return;
+  if (!players.host || !players.joiner) return;
 
   const gameKey = safeDbKey(`${friendJoinCode}_${gameData.createdAt || 'game'}_${gameData.gameOverReason}`);
   if (recordedGameStats.has(gameKey)) return;
@@ -3408,6 +3527,7 @@ function detachGameFieldListeners() {
 }
 
 function applySyncedGameState(gameData) {
+  const wasReviewing = exitOnlineBoardReviewForRemoteUpdate();
   const parsedBoard = boardFromFirebase(gameData.board);
   if (!parsedBoard || parsedBoard.length !== 8 || parsedBoard.some(r => !r || r.length !== 8)) {
     console.error('Invalid board from Firebase:', parsedBoard);
@@ -3429,6 +3549,10 @@ function applySyncedGameState(gameData) {
                    : timerLimitSecs;
   timerWhiteSecs  = Number.isFinite(gameData.timerWhiteSecs) ? gameData.timerWhiteSecs : timerWhiteSecs;
   timerBlackSecs  = Number.isFinite(gameData.timerBlackSecs) ? gameData.timerBlackSecs : timerBlackSecs;
+  selectedSq      = null;
+  legalMoves      = [];
+  rememberOnlinePositionSnapshot();
+  if (wasReviewing && gameMode === 'friend' && !gameOver && timerLimitSecs > 0) startTimers();
 
   return true;
 }
@@ -3950,6 +4074,10 @@ function setupGameListener(code, closeOnStart) {
     const signature   = gameSnapshotSignature(gameData);
 
     console.log(`[SNAP] fired — gameStarted=${gameStarted} turn=${gameData.currentTurn} dupSig=${gameStarted && signature === lastProcessedSignature}`);
+    if (gameStarted && signature === lastProcessedSignature && onlineReviewIndex !== null) {
+      console.log('[SNAP] skipped — duplicate while reviewing previous board');
+      return;
+    }
     if (gameStarted && signature === lastProcessedSignature && !needsApplyGameState(gameData)) {
       console.log('[SNAP] skipped — duplicate signature');
       return;
@@ -3970,6 +4098,9 @@ function setupGameListener(code, closeOnStart) {
 
       lastProcessedSignature = signature;
       gameStarted = true;
+      onlinePositionSnapshots = [];
+      onlineReviewIndex = null;
+      onlineLiveSnapshot = null;
       // Hide the modal directly — avoids closeModal() triggering cancelMatchmaking()
       const fModal = document.getElementById('friendModal');
       if (fModal) fModal.style.display = 'none';
@@ -4003,6 +4134,7 @@ function setupGameListener(code, closeOnStart) {
 
       gameMode = 'friend';
       initGame();      // resets board state and renders
+      rememberOnlinePositionSnapshot();
       applySyncedGameState(gameData);
       renderBoard();
       renderMoveHistory();
@@ -4134,6 +4266,10 @@ function exitFriendGame() {
   mirroredInGameFriendRequests = new Set();
   mirroredInGameFriendAccepts = new Set();
   mirroredInGameFriendRemovals = new Set();
+  onlinePositionSnapshots = [];
+  onlineReviewIndex = null;
+  onlineLiveSnapshot = null;
+  updateOnlineReviewControls();
   newGame();
 }
 
