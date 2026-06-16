@@ -1094,6 +1094,43 @@ body.online-timer-locked .timer-controls {
   gap: 10px;
 }
 
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.leaderboard-rank {
+  color: var(--green-bright);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.leaderboard-name {
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-value {
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
 /* ══════════════════════════════════════════
    FRIEND ROW — MORE BUTTON & POPUP
 ══════════════════════════════════════════ */

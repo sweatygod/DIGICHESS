@@ -414,10 +414,10 @@
             <span class="community-btn-label">Leaderboards</span>
             <span class="community-btn-sub">Global rankings</span>
           </button>
-          <button class="community-btn" onclick="openProfileModal()">
+          <button class="community-btn" onclick="closeModal('friendModal'); openStatsModal()">
             <span class="community-btn-icon">📊</span>
-            <span class="community-btn-label">Profile</span>
-            <span class="community-btn-sub">Stats &amp; history</span>
+            <span class="community-btn-label">Statistics</span>
+            <span class="community-btn-sub">Record &amp; trends</span>
           </button>
         </div>
       </div>
@@ -559,6 +559,34 @@
 
       <div class="modal-actions" style="margin-top:16px;">
         <button class="btn btn-ghost" onclick="closeModal('statsModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="leaderboardsModal" style="display:none;">
+    <div class="modal account-modal">
+      <h2 class="modal-title">Leaderboards</h2>
+      <p class="modal-sub">Top 5 DigiChess players</p>
+
+      <div class="account-section">
+        <h3 class="account-section-title">Category</h3>
+        <select class="timer-select" id="leaderboardCategory" onchange="loadLeaderboard()" style="width:100%;">
+          <option value="wins">Most Wins</option>
+          <option value="losses">Most Losses</option>
+          <option value="winRate">Win/Loss Percentage</option>
+        </select>
+      </div>
+
+      <div class="account-divider"></div>
+
+      <div class="account-section">
+        <div class="leaderboard-list" id="leaderboardList">
+          <p class="friends-empty">Loading leaderboard...</p>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-ghost" onclick="closeModal('leaderboardsModal')">Close</button>
       </div>
     </div>
   </div>

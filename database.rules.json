@@ -50,6 +50,13 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "leaderboards": {
+      ".read": "auth != null",
+      ".indexOn": ["wins", "losses", "winRate"],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
     "chats": {
       "$chatId": {
         ".read": "auth != null",

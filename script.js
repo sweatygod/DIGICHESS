@@ -1764,6 +1764,7 @@ async function loadStatsModal() {
   if (!currentUser || !db) return;
   const statsSnap = await db.ref(`users/${currentUser.uid}/stats`).once('value');
   const stats = { ...emptyStats(), ...(statsSnap.val() || {}) };
+  publishLeaderboardStats(stats).catch(err => console.warn('Unable to publish leaderboard stats:', err));
   const friendsSnap = await db.ref(`users/${currentUser.uid}/friends`).once('value');
   const currentFriends = Object.keys(friendsSnap.val() || {}).length;
   const decisiveGames = stats.wins + stats.losses;
@@ -1807,6 +1808,28 @@ async function incrementUserStats(delta, recordPath = null) {
       stats[key] = (Number(stats[key]) || 0) + amount;
     });
     return stats;
+  }).then(result => {
+    if (result.committed) {
+      publishLeaderboardStats({ ...emptyStats(), ...(result.snapshot.val() || {}) }).catch(err => {
+        console.warn('Unable to publish leaderboard stats:', err);
+      });
+    }
+  });
+}
+
+async function publishLeaderboardStats(stats = null) {
+  if (!currentUser || currentUser.isAnonymous || !db) return;
+  const sourceStats = stats || { ...emptyStats(), ...((await db.ref(`users/${currentUser.uid}/stats`).once('value')).val() || {}) };
+  const decisiveGames = (Number(sourceStats.wins) || 0) + (Number(sourceStats.losses) || 0);
+  const winRate = decisiveGames > 0 ? Math.round(((Number(sourceStats.wins) || 0) / decisiveGames) * 10000) / 100 : 0;
+
+  await db.ref(`leaderboards/${currentUser.uid}`).set({
+    username: sanitizePlayerName(currentUsername),
+    wins: Number(sourceStats.wins) || 0,
+    losses: Number(sourceStats.losses) || 0,
+    winRate,
+    onlineMatches: Number(sourceStats.onlineMatches) || 0,
+    updatedAt: firebase.database.ServerValue.TIMESTAMP
   });
 }
 
@@ -3314,22 +3337,68 @@ function cancelMatchmaking() {
 }
 
 /** Leaderboards — stub modal */
-function openLeaderboardsModal() {
+async function openLeaderboardsModal() {
   closeModal('friendModal');
-  pushNotif({
-    type: 'info',
-    icon: '🏆',
-    title: 'Leaderboards coming soon',
-    body: 'Global rankings will be available in a future update.',
-    autoDismiss: 4000
-  });
+  if (currentUser && !currentUser.isAnonymous) {
+    publishLeaderboardStats().catch(err => console.warn('Unable to publish leaderboard stats:', err));
+  }
+  const modal = document.getElementById('leaderboardsModal');
+  if (modal) modal.style.display = 'flex';
+  await loadLeaderboard();
 }
 
 /** Profile — reuses the existing account modal for now */
 function openProfileModal() {
   closeModal('friendModal');
   if (!currentUser) { openAuthModal('signup'); return; }
-  openAccountModal();
+  openStatsModal();
+}
+
+async function loadLeaderboard() {
+  const list = document.getElementById('leaderboardList');
+  const select = document.getElementById('leaderboardCategory');
+  if (!list || !select || !db) return;
+
+  const category = select.value || 'wins';
+  const labels = {
+    wins: 'wins',
+    losses: 'losses',
+    winRate: '%'
+  };
+
+  list.innerHTML = '<p class="friends-empty">Loading leaderboard...</p>';
+
+  try {
+    const snap = await db.ref('leaderboards').orderByChild(category).limitToLast(5).once('value');
+    const rows = [];
+    snap.forEach(child => rows.push({ uid: child.key, ...(child.val() || {}) }));
+    rows.sort((a, b) => (Number(b[category]) || 0) - (Number(a[category]) || 0));
+
+    const filtered = category === 'winRate'
+      ? rows.filter(row => (Number(row.wins) || 0) + (Number(row.losses) || 0) > 0)
+      : rows;
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<p class="friends-empty">No leaderboard data yet.</p>';
+      return;
+    }
+
+    list.innerHTML = filtered.slice(0, 5).map((row, idx) => {
+      const value = category === 'winRate'
+        ? `${Number(row.winRate || 0).toFixed(1)}%`
+        : `${Number(row[category]) || 0} ${labels[category]}`;
+      return `
+        <div class="leaderboard-row">
+          <span class="leaderboard-rank">#${idx + 1}</span>
+          <span class="leaderboard-name">${sanitizePlayerName(row.username, 'Player')}</span>
+          <span class="leaderboard-value">${value}</span>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Leaderboard load failed:', err);
+    list.innerHTML = '<p class="friends-empty">Unable to load leaderboards right now.</p>';
+  }
 }
 
 function createFriendGame() {
