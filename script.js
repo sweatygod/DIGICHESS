@@ -130,7 +130,9 @@ let hostUsername     = null;       // username of who created the game
 let joinerUsername   = null;       // username of who joined the game
 let onlinePlayerUidByColor = { w: null, b: null };
 let currentGameFriendRequests = {};
+let currentGameFriendAccepts = {};
 let mirroredInGameFriendRequests = new Set();
+let mirroredInGameFriendAccepts = new Set();
 
 /* ══════════════════════════════════════════
    MULTIPLAYER HELPER FUNCTIONS (defined early)
@@ -1072,14 +1074,21 @@ async function updatePlayerSlotButton(color, playerName, myName) {
     const oppUid = getOnlinePlayerUidForDisplayColor(color);
     if (!oppUid || oppUid === currentUser.uid) return;
 
-    const friendSnap = await db.ref(`users/${currentUser.uid}/friends/${oppUid}`).once('value');
-    if (friendSnap.exists()) {
+    if (hasAcceptedInGameFriendship(oppUid)) {
       friendBtn.style.display = 'inline-flex';
-    } else if (hasPendingInGameFriendRequest(oppUid)) {
+      return;
+    }
+    if (hasPendingInGameFriendRequest(oppUid)) {
       addBtn.disabled = true;
       addBtn.title = `Friend request sent to ${playerName}`;
       addBtn.classList.add('request-sent');
       addBtn.style.display = 'inline-flex';
+      return;
+    }
+
+    const friendSnap = await db.ref(`users/${currentUser.uid}/friends/${oppUid}`).once('value');
+    if (friendSnap.exists()) {
+      friendBtn.style.display = 'inline-flex';
     } else {
       addBtn.disabled = false;
       addBtn.title = `Add ${playerName}`;
@@ -1097,6 +1106,12 @@ function getOnlinePlayerUidForDisplayColor(color) {
 function hasPendingInGameFriendRequest(targetUid) {
   const request = currentGameFriendRequests?.[currentUser?.uid];
   return !!request && request.toUid === targetUid;
+}
+
+function hasAcceptedInGameFriendship(targetUid) {
+  const acceptedByMe = currentGameFriendAccepts?.[currentUser?.uid];
+  const acceptedByThem = currentGameFriendAccepts?.[targetUid];
+  return acceptedByMe?.toUid === targetUid || acceptedByThem?.toUid === currentUser?.uid;
 }
 
 async function addFriendFromPlayerSlot(color) {
@@ -1978,13 +1993,29 @@ async function sendFriendRequest() {
 async function acceptFriendRequest(fromUid, fromName) {
   const myUid = currentUser.uid;
   const updates = {};
-  // Add each other as friends
-  updates[`users/${myUid}/friends/${fromUid}`]   = true;
-  updates[`users/${fromUid}/friends/${myUid}`]   = true;
-  // Remove the request
+  updates[`users/${myUid}/friends/${fromUid}`] = true;
   updates[`users/${myUid}/friendRequests/${fromUid}`] = null;
-  await db.ref().update(updates);
+
+  try {
+    updates[`users/${fromUid}/friends/${myUid}`] = true;
+    await db.ref().update(updates);
+  } catch (err) {
+    console.warn('Reciprocal friend write failed; using in-game accept handoff:', err);
+    await db.ref(`users/${myUid}/friends/${fromUid}`).set(true);
+    await db.ref(`users/${myUid}/friendRequests/${fromUid}`).remove();
+
+    if (friendGameRef && currentGameFriendRequests?.[fromUid]?.toUid === myUid) {
+      await friendGameRef.child(`friendAccepts/${myUid}`).set({
+        toUid: fromUid,
+        fromUsername: sanitizePlayerName(currentUsername),
+        toUsername: sanitizePlayerName(fromName),
+        acceptedAt: firebase.database.ServerValue.TIMESTAMP
+      });
+    }
+  }
+
   loadFriendsModal(); // refresh
+  updateGameInfo();
 }
 
 async function declineFriendRequest(fromUid) {
@@ -2630,6 +2661,7 @@ function syncLocalNamesFromGame(gameData) {
   const otherSlot = mySlot === 'host' ? 'joiner' : mySlot === 'joiner' ? 'host' : null;
   onlinePlayerUidByColor = { w: null, b: null };
   currentGameFriendRequests = gameData.friendRequests || {};
+  currentGameFriendAccepts = gameData.friendAccepts || {};
 
   if (gameData.colors) {
     Object.entries(gameData.colors).forEach(([uid, color]) => {
@@ -2721,7 +2753,8 @@ function gameSnapshotSignature(gameData) {
     timerWhiteSecs: Number.isFinite(gameData.timerWhiteSecs) ? gameData.timerWhiteSecs : null,
     timerBlackSecs: Number.isFinite(gameData.timerBlackSecs) ? gameData.timerBlackSecs : null,
     timerLimitSecs: Number.isFinite(gameData.timerLimitSecs) ? gameData.timerLimitSecs : null,
-    friendRequests: gameData.friendRequests || null
+    friendRequests: gameData.friendRequests || null,
+    friendAccepts: gameData.friendAccepts || null
   });
 }
 
@@ -2740,6 +2773,25 @@ function mirrorInGameFriendRequests(gameData) {
     }).catch(err => {
       mirroredInGameFriendRequests.delete(requestKey);
       console.error('Failed to mirror in-game friend request:', err);
+    });
+  });
+}
+
+function mirrorInGameFriendAccepts(gameData) {
+  if (!currentUser || !db || !gameData?.friendAccepts) return;
+
+  Object.entries(gameData.friendAccepts).forEach(([fromUid, accept]) => {
+    if (!accept || accept.toUid !== currentUser.uid || fromUid === currentUser.uid) return;
+    const acceptKey = `${fromUid}:${accept.acceptedAt || 'accepted'}`;
+    if (mirroredInGameFriendAccepts.has(acceptKey)) return;
+    mirroredInGameFriendAccepts.add(acceptKey);
+
+    db.ref(`users/${currentUser.uid}/friends/${fromUid}`).set(true).then(() => {
+      db.ref(`users/${currentUser.uid}/friendRequests/${fromUid}`).remove().catch(() => {});
+      updateGameInfo();
+    }).catch(err => {
+      mirroredInGameFriendAccepts.delete(acceptKey);
+      console.error('Failed to mirror in-game friend acceptance:', err);
     });
   });
 }
@@ -3207,6 +3259,7 @@ function setupGameListener(code, closeOnStart) {
 
     syncLocalNamesFromGame(gameData);
     mirrorInGameFriendRequests(gameData);
+    mirrorInGameFriendAccepts(gameData);
 
     // ── Waiting for second player ──
     if (!gameStarted) {
@@ -3373,7 +3426,9 @@ function exitFriendGame() {
   opponentUsername = null;
   onlinePlayerUidByColor = { w: null, b: null };
   currentGameFriendRequests = {};
+  currentGameFriendAccepts = {};
   mirroredInGameFriendRequests = new Set();
+  mirroredInGameFriendAccepts = new Set();
   newGame();
 }
 

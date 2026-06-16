@@ -994,9 +994,13 @@ body.online-timer-locked .timer-controls {
 .add-friend-btn:hover { background: var(--green-glow); }
 .add-friend-btn:disabled,
 .add-friend-btn.request-sent {
+  background: rgba(139, 148, 158, 0.12);
+  border-color: var(--text-muted);
+  color: var(--text-muted);
   cursor: default;
-  opacity: 0.75;
+  opacity: 1;
 }
+.add-friend-btn.request-sent:hover { background: rgba(139, 148, 158, 0.12); }
 
 .already-friend-btn {
   background: var(--green-subtle);
