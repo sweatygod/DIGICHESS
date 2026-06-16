@@ -134,6 +134,8 @@ let currentGameFriendAccepts = {};
 let currentGameFriendRemovals = {};
 let mirroredInGameFriendRequests = new Set();
 let mirroredInGameFriendAccepts = new Set();
+let recordedGameStats = new Set();
+let recordedFriendStats = new Set();
 
 /* ══════════════════════════════════════════
    MULTIPLAYER HELPER FUNCTIONS (defined early)
@@ -1502,10 +1504,12 @@ function updateAccountUI(username) {
     const friendsItem  = document.getElementById('dropdownFriends');
     const messagesItem = document.getElementById('dropdownMessages');
     const accountItem  = document.getElementById('dropdownAccount');
+    const statsItem    = document.getElementById('dropdownStats');
     const guestUpgrade = document.getElementById('dropdownGuestUpgrade');
     if (friendsItem)  friendsItem.style.display  = isGuest ? 'none' : 'flex';
     if (messagesItem) messagesItem.style.display  = isGuest ? 'none' : 'flex';
     if (accountItem)  accountItem.style.display  = isGuest ? 'none' : 'flex';
+    if (statsItem)    statsItem.style.display    = isGuest ? 'none' : 'flex';
     if (guestUpgrade) guestUpgrade.style.display = isGuest ? 'flex' : 'none';
   } else {
     widget.style.display    = 'none';
@@ -1725,6 +1729,121 @@ function openAccountModal() {
   if (sub) sub.textContent = `Signed in as: ${currentUsername}`;
 
   document.getElementById('accountModal').style.display = 'flex';
+}
+
+async function openStatsModal() {
+  const dropdown = document.getElementById('profileDropdown');
+  if (dropdown) dropdown.style.display = 'none';
+  if (!currentUser || currentUser.isAnonymous) return;
+
+  const sub = document.getElementById('statsModalSub');
+  if (sub) sub.textContent = `Stats for ${currentUsername || 'Player'}`;
+
+  document.getElementById('statsModal').style.display = 'flex';
+  await loadStatsModal();
+}
+
+function emptyStats() {
+  return {
+    onlineMatches: 0,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    checkmateWins: 0,
+    timeoutWins: 0,
+    resignWins: 0,
+    friendsMadeInMatches: 0
+  };
+}
+
+async function loadStatsModal() {
+  if (!currentUser || !db) return;
+  const statsSnap = await db.ref(`users/${currentUser.uid}/stats`).once('value');
+  const stats = { ...emptyStats(), ...(statsSnap.val() || {}) };
+  const friendsSnap = await db.ref(`users/${currentUser.uid}/friends`).once('value');
+  const currentFriends = Object.keys(friendsSnap.val() || {}).length;
+  const decisiveGames = stats.wins + stats.losses;
+  const winRate = decisiveGames > 0 ? Math.round((stats.wins / decisiveGames) * 100) : 0;
+  const avgFriends = stats.onlineMatches > 0 ? (stats.friendsMadeInMatches / stats.onlineMatches).toFixed(2) : '0.00';
+
+  setText('statWins', stats.wins);
+  setText('statLosses', stats.losses);
+  setText('statWinRate', `${winRate}%`);
+  setText('statDraws', stats.draws);
+  setText('statMatches', stats.onlineMatches);
+  setText('statCheckmateWins', stats.checkmateWins);
+  setText('statTimeoutWins', stats.timeoutWins);
+  setText('statResignWins', stats.resignWins);
+  setText('statCurrentFriends', currentFriends);
+  setText('statFriendsMade', stats.friendsMadeInMatches);
+  setText('statAvgFriends', avgFriends);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function safeDbKey(value) {
+  return String(value).replace(/[.#$/\[\]]/g, '_');
+}
+
+async function incrementUserStats(delta, recordPath = null) {
+  if (!currentUser || currentUser.isAnonymous || !db) return;
+
+  if (recordPath) {
+    const markerRef = db.ref(`users/${currentUser.uid}/${recordPath}`);
+    const claim = await markerRef.transaction(current => current ? undefined : true);
+    if (!claim.committed) return;
+  }
+
+  await db.ref(`users/${currentUser.uid}/stats`).transaction(current => {
+    const stats = { ...emptyStats(), ...(current || {}) };
+    Object.entries(delta).forEach(([key, amount]) => {
+      stats[key] = (Number(stats[key]) || 0) + amount;
+    });
+    return stats;
+  });
+}
+
+function recordOnlineGameStatsIfNeeded(gameData) {
+  if (!currentUser || currentUser.isAnonymous || !gameData?.gameOver || !gameData.gameOverReason) return;
+  if (!friendJoinCode || !myColor) return;
+
+  const gameKey = safeDbKey(`${friendJoinCode}_${gameData.createdAt || 'game'}_${gameData.gameOverReason}`);
+  if (recordedGameStats.has(gameKey)) return;
+  recordedGameStats.add(gameKey);
+
+  const myDisplayColor = myColor === 'w' ? 'White' : 'Black';
+  const reason = gameData.gameOverReason;
+  const delta = { onlineMatches: 1 };
+
+  if (reason === 'stalemate') {
+    delta.draws = 1;
+  } else if (gameData.gameOverWinner === myDisplayColor) {
+    delta.wins = 1;
+    if (reason === 'checkmate') delta.checkmateWins = 1;
+    if (reason === 'timeout') delta.timeoutWins = 1;
+    if (reason === 'resign') delta.resignWins = 1;
+  } else {
+    delta.losses = 1;
+  }
+
+  incrementUserStats(delta, `statsRecordedGames/${gameKey}`).catch(err => {
+    recordedGameStats.delete(gameKey);
+    console.error('Failed to record game stats:', err);
+  });
+}
+
+function recordFriendMadeInMatch(friendUid) {
+  if (!currentUser || currentUser.isAnonymous || !friendJoinCode || !friendUid) return;
+  const recordKey = safeDbKey(`${friendJoinCode}_${friendUid}`);
+  if (recordedFriendStats.has(recordKey)) return;
+  recordedFriendStats.add(recordKey);
+  incrementUserStats({ friendsMadeInMatches: 1 }, `statsRecordedFriends/${recordKey}`).catch(err => {
+    recordedFriendStats.delete(recordKey);
+    console.error('Failed to record friend stats:', err);
+  });
 }
 
 async function handleChangeUsername() {
@@ -2068,6 +2187,7 @@ async function acceptFriendRequest(fromUid, fromName) {
   }
 
   loadFriendsModal(); // refresh
+  recordFriendMadeInMatch(fromUid);
   updateGameInfo();
 }
 
@@ -2877,6 +2997,7 @@ function mirrorInGameFriendAccepts(gameData) {
       addedAt: accept.acceptedAt || firebase.database.ServerValue.TIMESTAMP
     }).then(() => {
       db.ref(`users/${currentUser.uid}/friendRequests/${fromUid}`).remove().catch(() => {});
+      recordFriendMadeInMatch(fromUid);
       updateGameInfo();
     }).catch(err => {
       mirroredInGameFriendAccepts.delete(acceptKey);
@@ -3349,6 +3470,7 @@ function setupGameListener(code, closeOnStart) {
     syncLocalNamesFromGame(gameData);
     mirrorInGameFriendRequests(gameData);
     mirrorInGameFriendAccepts(gameData);
+    recordOnlineGameStatsIfNeeded(gameData);
 
     // ── Waiting for second player ──
     if (!gameStarted) {

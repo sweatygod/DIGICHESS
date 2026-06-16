@@ -56,6 +56,10 @@
           <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
           Account
         </button>
+        <button class="dropdown-item" id="dropdownStats" onclick="openStatsModal()">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v6H2v-6zM8 7a1 1 0 011-1h2a1 1 0 011 1v10H8V7zM14 3a1 1 0 011-1h2a1 1 0 011 1v14h-4V3z"/></svg>
+          Statistics
+        </button>
         <button class="dropdown-item" id="dropdownFriends" onclick="openFriendsModal()">
           <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v1h8v-1zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-1a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v1h-3zM4.75 12.094A5.973 5.973 0 004 15v1H1v-1a3 3 0 013.75-2.906z"/></svg>
           Friends
@@ -511,6 +515,50 @@
 
       <div class="modal-actions" style="margin-top:16px;">
         <button class="btn btn-ghost" onclick="closeModal('accountModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="statsModal" style="display:none;">
+    <div class="modal account-modal">
+      <h2 class="modal-title">Statistics</h2>
+      <p class="modal-sub" id="statsModalSub"></p>
+
+      <div class="account-section">
+        <h3 class="account-section-title">Match Record</h3>
+        <div class="stats-grid">
+          <div class="stat-tile"><span>Wins</span><strong id="statWins">0</strong></div>
+          <div class="stat-tile"><span>Losses</span><strong id="statLosses">0</strong></div>
+          <div class="stat-tile"><span>Win Rate</span><strong id="statWinRate">0%</strong></div>
+          <div class="stat-tile"><span>Draws</span><strong id="statDraws">0</strong></div>
+        </div>
+      </div>
+
+      <div class="account-divider"></div>
+
+      <div class="account-section">
+        <h3 class="account-section-title">Online Play</h3>
+        <div class="stats-list">
+          <div class="info-row"><span>Matches Played</span><span id="statMatches">0</span></div>
+          <div class="info-row"><span>Checkmate Wins</span><span id="statCheckmateWins">0</span></div>
+          <div class="info-row"><span>Timeout Wins</span><span id="statTimeoutWins">0</span></div>
+          <div class="info-row"><span>Resignation Wins</span><span id="statResignWins">0</span></div>
+        </div>
+      </div>
+
+      <div class="account-divider"></div>
+
+      <div class="account-section">
+        <h3 class="account-section-title">Social</h3>
+        <div class="stats-list">
+          <div class="info-row"><span>Current Friends</span><span id="statCurrentFriends">0</span></div>
+          <div class="info-row"><span>Friends Added In Matches</span><span id="statFriendsMade">0</span></div>
+          <div class="info-row"><span>Average Friends Per Match</span><span id="statAvgFriends">0.00</span></div>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="margin-top:16px;">
+        <button class="btn btn-ghost" onclick="closeModal('statsModal')">Close</button>
       </div>
     </div>
   </div>
