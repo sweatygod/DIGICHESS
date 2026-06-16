@@ -3010,7 +3010,8 @@ function setupGameListener(code, closeOnStart) {
     }
 
     // ── In-progress: apply opponent's move ──
-    if (!applySyncedGameState(gameData)) return;
+    console.log(`[SNAP] in-progress — Firebase turn: ${gameData.currentTurn}, myColor: ${myColor}`);
+    if (!applySyncedGameState(gameData)) { console.error("[SNAP] invalid board"); return; }
 
     // ── Rematch accepted: game was reset — close modal and restart ──
     if (!gameData.gameOver && !gameData.gameOverTitle) {
@@ -3064,20 +3065,22 @@ function setupGameListener(code, closeOnStart) {
 }
 
 function syncMoveToFriend(notation) {
-  if (!db) { console.warn('syncMove: no db'); return; }
-  if (!friendGameRef) { console.warn('syncMove: no friendGameRef'); return; }
-  if (gameMode !== 'friend') { console.warn('syncMove: gameMode is', gameMode); return; }
-  
+  if (!db) { console.warn('[SYNC] no db'); return; }
+  if (!friendGameRef) { console.warn('[SYNC] no friendGameRef'); return; }
+  if (gameMode !== 'friend') { console.warn('[SYNC] gameMode is', gameMode); return; }
+
   // Only sync after our own move (the turn just switched away from us)
   const weJustMoved = (myColor === 'w' && currentTurn === 'b') || (myColor === 'b' && currentTurn === 'w');
-  if (!weJustMoved) return;
+  console.log(`[SYNC] myColor=${myColor} currentTurn=${currentTurn} weJustMoved=${weJustMoved}`);
+  if (!weJustMoved) { console.warn('[SYNC] skipped — not our move'); return; }
 
   const updates = gameStateForFirebase();
+  console.log('[SYNC] writing to Firebase, currentTurn in payload:', updates.currentTurn);
 
   friendGameRef.update(updates).then(() => {
-    console.log('syncMove: success, turn now', currentTurn);
+    console.log('[SYNC] success ✓');
   }).catch(err => {
-    console.error('syncMove FAILED:', err.code, err.message);
+    console.error('[SYNC] FAILED — Firebase rejected write:', err.code, err.message);
   });
 }
 
