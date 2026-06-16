@@ -1443,16 +1443,8 @@ async function handleSignUp() {
   btn.textContent = 'Creating account…';
 
   try {
-    // Check username is not taken
-    const snap = await db.ref(`usernames/${username}`).once('value');
-    if (snap.exists()) {
-      showAuthError(errorEl, 'That username is already taken. Try another.');
-      btn.disabled = false;
-      btn.textContent = 'Sign Up';
-      return;
-    }
-
     // Create Firebase Auth account using username@digichess.com as internal email
+    // Auth enforces uniqueness, so this works even before database rules allow user reads.
     const email = `${username}@digichess.com`;
     const cred  = await firebase.auth().createUserWithEmailAndPassword(email, password);
     const uid   = cred.user.uid;
