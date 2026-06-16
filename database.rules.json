@@ -45,6 +45,7 @@
     },
     "matchmaking": {
       ".read": "auth != null",
+      ".indexOn": ["joinedAt"],
       "$uid": {
         ".read": "auth != null",
         ".write": "auth != null"
@@ -54,11 +55,23 @@
       ".read": "auth != null",
       ".write": "auth != null"
     },
+    "matchmakingRanked": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",
+      ".indexOn": ["joinedAt"],
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true"
+      }
+    },
+    "matchmakingRankedPairs": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true"
+    },
     "leaderboards": {
       ".read": "auth != null",
-      ".indexOn": ["wins", "losses", "winRate"],
+      ".indexOn": ["elo", "wins", "losses", "winRate"],
       "$uid": {
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid === $uid && root.child('users').child(auth.uid).child('isGuest').val() !== true"
       }
     },
     "chats": {

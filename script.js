@@ -12,6 +12,9 @@ let db = null;
 const DIGICHAT_THREAD_ID = '__digichat__';
 const DIGICHAT_CHAT_ID = 'DIGICHAT';
 const DIGICHAT_NAME = 'DIGICHAT';
+const STARTING_ELO = 400;
+const MIN_ELO = 100;
+const ELO_K_FACTOR = 32;
 
 // Initialize Firebase when ready
 function initFirebase() {
@@ -47,6 +50,9 @@ function initFirebase() {
           const displayName = username || 'Player';
           currentUsername = displayName;
           updateAccountUI(displayName);
+          if (!user.isAnonymous) {
+            ensureUserElo(displayName).catch(err => console.warn('Unable to initialise Elo:', err));
+          }
           // Guests only get match-accepted listener (for quick play / friend game invites)
           // — no social notifications (DMs, friend requests, match challenges)
           if (!user.isAnonymous) {
@@ -157,6 +163,8 @@ let opponentUsername = null;       // the other player's username in a friend ga
 let hostUsername     = null;       // username of who created the game
 let joinerUsername   = null;       // username of who joined the game
 let onlinePlayerUidByColor = { w: null, b: null };
+let currentGameRanked = false;
+let currentGameElos = {};
 let currentGameFriendRequests = {};
 let currentGameFriendAccepts = {};
 let currentGameFriendRemovals = {};
@@ -164,6 +172,7 @@ let mirroredInGameFriendRequests = new Set();
 let mirroredInGameFriendAccepts = new Set();
 let mirroredInGameFriendRemovals = new Set();
 let recordedGameStats = new Set();
+let recordedEloGames = new Set();
 let recordedFriendStats = new Set();
 let onlinePositionSnapshots = [];
 let onlineReviewIndex = null;
@@ -196,6 +205,11 @@ function openPlayOnlineModal() {
   document.getElementById('friendJoinCode').value             = '';
   document.getElementById('matchmakingStatus').style.display  = 'none';
   document.getElementById('qpIdle').style.display             = 'block';
+
+  const rankedBtn = document.getElementById('rankedQuickPlayBtn');
+  const rankedGuestMessage = document.getElementById('rankedGuestMessage');
+  if (rankedBtn) rankedBtn.style.display = currentUser.isAnonymous ? 'none' : 'flex';
+  if (rankedGuestMessage) rankedGuestMessage.style.display = currentUser.isAnonymous ? 'block' : 'none';
 
   // Hide Community & Stats section for guests — they have no friends/social features
   const communitySection = document.getElementById('onlineCommunityWrapper');
@@ -1313,6 +1327,13 @@ function updateCapturedPieces() {
 function updateGameInfo() {
   document.getElementById('infoMode').textContent   = gameMode === 'ai' ? 'vs AI' : gameMode === 'friend' ? 'Online' : 'PvP';
   document.getElementById('infoMoves').textContent  = moveHistory.length;
+  const rankedRow = document.getElementById('infoRankedRow');
+  const rankedStatus = document.getElementById('infoRankedStatus');
+  if (rankedRow) rankedRow.style.display = gameMode === 'friend' ? 'flex' : 'none';
+  if (rankedStatus) {
+    rankedStatus.textContent = currentGameRanked ? 'Ranked' : 'Unranked';
+    rankedStatus.style.color = currentGameRanked ? 'var(--green-bright)' : 'var(--text-secondary)';
+  }
   if (!gameOver) {
     document.getElementById('infoStatus').textContent = 'Active';
     document.getElementById('infoStatus').className  = 'status-active';
@@ -1340,8 +1361,8 @@ function updateGameInfo() {
     }
 
     const myName = currentUsername;
-    document.getElementById('infoWhitePlayer').textContent = whitePlayer;
-    document.getElementById('infoBlackPlayer').textContent = blackPlayer;
+    document.getElementById('infoWhitePlayer').innerHTML = formatOnlinePlayerLabel('w', whitePlayer);
+    document.getElementById('infoBlackPlayer').innerHTML = formatOnlinePlayerLabel('b', blackPlayer);
 
     // For each opponent slot, check friendship and show the right button
     updatePlayerSlotButton('White', whitePlayer, myName);
@@ -1352,6 +1373,15 @@ function updateGameInfo() {
     if (playerNamesSection) playerNamesSection.style.display = 'none';
     hidePlayerSlotButtons();
   }
+}
+
+function formatOnlinePlayerLabel(color, playerName) {
+  const safeName = sanitizePlayerName(playerName, 'Player');
+  if (!currentGameRanked) return safeName;
+  const uid = onlinePlayerUidByColor[color];
+  const elo = uid ? currentGameElos[uid] : null;
+  if (!elo) return safeName;
+  return `<span class="elo-badge">${normalizeElo(elo)}</span> ${safeName}`;
 }
 
 function hidePlayerSlotButtons() {
@@ -2048,6 +2078,7 @@ async function handleSignUp() {
     // Store username in DB (both for lookup and reverse lookup)
     await db.ref(`users/${uid}/username`).set(username);
     await db.ref(`usernames/${username}`).set(uid);
+    await ensureUserElo(username, uid);
 
     // Close modal — onAuthStateChanged will update the UI
     closeModal('authModal');
@@ -2151,6 +2182,7 @@ async function submitChosenUsername() {
 
     await db.ref(`users/${uid}/username`).set(username);
     await db.ref(`usernames/${username}`).set(uid);
+    await ensureUserElo(username, uid);
 
     currentUsername = username;
     updateAccountUI(username);
@@ -2263,16 +2295,105 @@ async function openFriendStatsModal(friendUid, friendName) {
 
 function emptyStats() {
   return {
+    elo: STARTING_ELO,
     onlineMatches: 0,
     wins: 0,
     losses: 0,
     draws: 0,
+    rankedMatches: 0,
+    rankedWins: 0,
+    rankedLosses: 0,
+    rankedDraws: 0,
+    unrankedMatches: 0,
     checkmateWins: 0,
     timeoutWins: 0,
     resignWins: 0,
     currentFriends: 0,
     friendsMadeInMatches: 0
   };
+}
+
+function normalizeElo(value) {
+  const elo = Number(value);
+  return Number.isFinite(elo) ? Math.max(MIN_ELO, Math.round(elo)) : STARTING_ELO;
+}
+
+async function ensureUserElo(username = currentUsername, uid = currentUser?.uid) {
+  if (!uid || !db) return STARTING_ELO;
+  if (currentUser?.uid === uid && currentUser.isAnonymous) return null;
+
+  let latestElo = STARTING_ELO;
+  await db.ref(`users/${uid}/stats`).transaction(current => {
+    const stats = { ...emptyStats(), ...(current || {}) };
+    stats.elo = normalizeElo(stats.elo);
+    latestElo = stats.elo;
+    return stats;
+  });
+
+  if (uid === currentUser?.uid && !currentUser.isAnonymous) {
+    publishLeaderboardStats({ ...(await getOwnStats()), elo: latestElo }, username).catch(err => {
+      console.warn('Unable to publish Elo leaderboard stats:', err);
+    });
+  }
+  return latestElo;
+}
+
+async function getOwnStats() {
+  if (!currentUser || currentUser.isAnonymous || !db) return emptyStats();
+  const snap = await db.ref(`users/${currentUser.uid}/stats`).once('value');
+  return { ...emptyStats(), ...(snap.val() || {}) };
+}
+
+function calculateEloChange(playerElo, opponentElo, actualScore) {
+  const expected = 1 / (1 + Math.pow(10, (normalizeElo(opponentElo) - normalizeElo(playerElo)) / 400));
+  const next = normalizeElo(playerElo + ELO_K_FACTOR * (actualScore - expected));
+  return {
+    oldElo: normalizeElo(playerElo),
+    newElo: next,
+    change: next - normalizeElo(playerElo)
+  };
+}
+
+function scoreForRankedResult(gameData, myDisplayColor) {
+  if (gameData.gameOverReason === 'stalemate') return 0.5;
+  return gameData.gameOverWinner === myDisplayColor ? 1 : 0;
+}
+
+async function applyRankedEloChange(gameData, gameKey) {
+  if (!currentUser || currentUser.isAnonymous || !db || !gameData?.ranked) return;
+  if (!gameData.players?.host || !gameData.players?.joiner || !myColor) return;
+  if (recordedEloGames.has(gameKey)) return;
+  recordedEloGames.add(gameKey);
+
+  const markerRef = db.ref(`users/${currentUser.uid}/eloRecordedGames/${gameKey}`);
+  const claim = await markerRef.transaction(current => current ? undefined : true);
+  if (!claim.committed) return;
+
+  const colors = gameData.colors || {};
+  const opponentUid = Object.keys(colors).find(uid => uid !== currentUser.uid && (colors[uid] === 'w' || colors[uid] === 'b'));
+  if (!opponentUid) return;
+
+  const playerElos = gameData.playerElos || {};
+  const myDisplayColor = myColor === 'w' ? 'White' : 'Black';
+  const actualScore = scoreForRankedResult(gameData, myDisplayColor);
+  const opponentElo = normalizeElo(playerElos[opponentUid]);
+
+  await db.ref(`users/${currentUser.uid}/stats`).transaction(current => {
+    const stats = { ...emptyStats(), ...(current || {}) };
+    const eloResult = calculateEloChange(stats.elo, opponentElo, actualScore);
+    stats.elo = eloResult.newElo;
+    stats.rankedMatches = (Number(stats.rankedMatches) || 0) + 1;
+    if (actualScore === 1) stats.rankedWins = (Number(stats.rankedWins) || 0) + 1;
+    else if (actualScore === 0) stats.rankedLosses = (Number(stats.rankedLosses) || 0) + 1;
+    else stats.rankedDraws = (Number(stats.rankedDraws) || 0) + 1;
+    return stats;
+  }).then(result => {
+    if (result.committed) {
+      publishLeaderboardStats({ ...emptyStats(), ...(result.snapshot.val() || {}) }).catch(err => {
+        console.warn('Unable to publish Elo leaderboard update:', err);
+      });
+    }
+  });
 }
 
 async function loadStatsModal(uid = currentUser?.uid, displayName = currentUsername || 'Player', publishOwn = false) {
@@ -2300,7 +2421,13 @@ async function loadStatsModal(uid = currentUser?.uid, displayName = currentUsern
   setText('statLosses', stats.losses);
   setText('statWinRate', `${winRate}%`);
   setText('statDraws', stats.draws);
+  setText('statElo', normalizeElo(stats.elo));
   setText('statMatches', stats.onlineMatches);
+  setText('statRankedMatches', stats.rankedMatches);
+  setText('statRankedWins', stats.rankedWins);
+  setText('statRankedLosses', stats.rankedLosses);
+  setText('statRankedDraws', stats.rankedDraws);
+  setText('statUnrankedMatches', stats.unrankedMatches);
   setText('statCheckmateWins', stats.checkmateWins);
   setText('statTimeoutWins', stats.timeoutWins);
   setText('statResignWins', stats.resignWins);
@@ -2336,7 +2463,7 @@ async function incrementUserStats(delta, recordPath = null) {
     return stats;
   }).then(result => {
     if (result.committed) {
-      publishLeaderboardStats({ ...emptyStats(), ...(result.snapshot.val() || {}) }).catch(err => {
+      publishLeaderboardStats().catch(err => {
         console.warn('Unable to publish leaderboard stats:', err);
       });
     }
@@ -2353,14 +2480,15 @@ async function adjustOwnFriendCountStat(delta) {
   await incrementUserStats({ currentFriends: delta });
 }
 
-async function publishLeaderboardStats(stats = null) {
+async function publishLeaderboardStats(stats = null, usernameOverride = currentUsername) {
   if (!currentUser || currentUser.isAnonymous || !db) return;
   const sourceStats = stats || { ...emptyStats(), ...((await db.ref(`users/${currentUser.uid}/stats`).once('value')).val() || {}) };
   const decisiveGames = (Number(sourceStats.wins) || 0) + (Number(sourceStats.losses) || 0);
   const winRate = decisiveGames > 0 ? Math.round(((Number(sourceStats.wins) || 0) / decisiveGames) * 10000) / 100 : 0;
 
   await db.ref(`leaderboards/${currentUser.uid}`).set({
-    username: sanitizePlayerName(currentUsername),
+    username: sanitizePlayerName(usernameOverride),
+    elo: normalizeElo(sourceStats.elo),
     wins: Number(sourceStats.wins) || 0,
     losses: Number(sourceStats.losses) || 0,
     winRate,
@@ -2384,6 +2512,7 @@ function recordOnlineGameStatsIfNeeded(gameData) {
   const myDisplayColor = myColor === 'w' ? 'White' : 'Black';
   const reason = gameData.gameOverReason;
   const delta = { onlineMatches: 1 };
+  if (!gameData.ranked) delta.unrankedMatches = 1;
 
   if (reason === 'stalemate') {
     delta.draws = 1;
@@ -2400,6 +2529,13 @@ function recordOnlineGameStatsIfNeeded(gameData) {
     recordedGameStats.delete(gameKey);
     console.error('Failed to record game stats:', err);
   });
+
+  if (gameData.ranked) {
+    applyRankedEloChange(gameData, gameKey).catch(err => {
+      recordedEloGames.delete(gameKey);
+      console.error('Failed to apply ranked Elo:', err);
+    });
+  }
 }
 
 function recordFriendMadeInMatch(friendUid) {
@@ -3519,6 +3655,8 @@ function syncLocalNamesFromGame(gameData) {
   const mySlot = playerSlotForUid(gameData, currentUser?.uid);
   const otherSlot = mySlot === 'host' ? 'joiner' : mySlot === 'joiner' ? 'host' : null;
   onlinePlayerUidByColor = { w: null, b: null };
+  currentGameRanked = gameData.ranked === true;
+  currentGameElos = gameData.playerElos || {};
   currentGameFriendRequests = gameData.friendRequests || {};
   currentGameFriendAccepts = gameData.friendAccepts || {};
   currentGameFriendRemovals = gameData.friendRemovals || {};
@@ -3617,7 +3755,10 @@ function gameSnapshotSignature(gameData) {
     timerLimitSecs: Number.isFinite(gameData.timerLimitSecs) ? gameData.timerLimitSecs : null,
     friendRequests: gameData.friendRequests || null,
     friendAccepts: gameData.friendAccepts || null,
-    friendRemovals: gameData.friendRemovals || null
+    friendRemovals: gameData.friendRemovals || null,
+    ranked: gameData.ranked === true,
+    matchType: gameData.matchType || null,
+    playerElos: gameData.playerElos || null
   });
 }
 
@@ -3770,6 +3911,7 @@ let matchmakingListener    = null;
 let quickPlayGameListener  = null;
 let matchmakingPairsRef    = null;
 let matchmakingPairsListener = null;
+let activeMatchmakingRanked = false;
 const QP_TIME_SECS         = 600;
 const QP_QUEUE_MAX_AGE_MS  = 2 * 60 * 1000;
 
@@ -3781,15 +3923,45 @@ function isFreshMatchmakingEntry(entry, now = Date.now()) {
          joinedAt <= now + 15000;
 }
 
-function findMatch() {
+function matchmakingQueuePath(isRanked = activeMatchmakingRanked) {
+  return isRanked ? 'matchmakingRanked' : 'matchmaking';
+}
+
+function matchmakingPairsPath(isRanked = activeMatchmakingRanked) {
+  return isRanked ? 'matchmakingRankedPairs' : 'matchmakingPairs';
+}
+
+function findUnrankedMatch() {
+  findMatch(false);
+}
+
+function findRankedMatch() {
+  if (!currentUser) { openAuthModal('signup'); return; }
+  if (currentUser.isAnonymous) {
+    const msg = document.getElementById('rankedGuestMessage');
+    if (msg) msg.style.display = 'block';
+    alert('Create an account to play ranked games.');
+    return;
+  }
+  findMatch(true);
+}
+
+function findMatch(isRanked = false) {
   if (!currentUser) { openAuthModal('signup'); return; }
   if (!db) return;
+  if (isRanked && currentUser.isAnonymous) {
+    alert('Create an account to play ranked games.');
+    return;
+  }
 
   const uid = currentUser.uid;
+  activeMatchmakingRanked = isRanked;
+  const queuePath = matchmakingQueuePath(isRanked);
+  const pairsPath = matchmakingPairsPath(isRanked);
 
   document.getElementById('qpIdle').style.display           = 'none';
   document.getElementById('matchmakingStatus').style.display = 'flex';
-  document.getElementById('matchmakingText').textContent    = 'Searching for an opponent\u2026';
+  document.getElementById('matchmakingText').textContent    = isRanked ? 'Searching for a ranked opponent…' : 'Searching for an opponent…';
 
   const ensureUsername = currentUsername
     ? Promise.resolve(currentUsername)
@@ -3800,15 +3972,20 @@ function findMatch() {
       });
 
   ensureUsername.then(async myUsername => {
-    const myRef     = db.ref(`matchmaking/${uid}`);
-    const myPairRef = db.ref(`matchmakingPairs/${uid}`);
+    const myElo = isRanked ? await ensureUserElo(myUsername) : null;
+    const myRef     = db.ref(`${queuePath}/${uid}`);
+    const myPairRef = db.ref(`${pairsPath}/${uid}`);
     const searchStartedAt = Date.now();
     const sessionId = `${uid}_${searchStartedAt}_${Math.random().toString(36).slice(2, 8)}`;
 
     await myPairRef.remove().catch(() => {});
     await myRef.remove().catch(() => {});
+    await db.ref(`${isRanked ? 'matchmakingPairs' : 'matchmakingRankedPairs'}/${uid}`).remove().catch(() => {});
+    await db.ref(`${isRanked ? 'matchmaking' : 'matchmakingRanked'}/${uid}`).remove().catch(() => {});
     await myRef.set({
       username: myUsername,
+      ranked: isRanked,
+      elo: myElo,
       joinedAt: firebase.database.ServerValue.TIMESTAMP,
       joinedAtMs: searchStartedAt,
       sessionId
@@ -3827,6 +4004,8 @@ function findMatch() {
       const colors   = gameData.colors || {};
       const names    = gameData.usernames || {};
 
+      currentGameRanked = gameData.ranked === true;
+      currentGameElos   = gameData.playerElos || {};
       myColor          = colors[uid] || (gameData.players?.host === uid ? 'b' : 'w');
       isFlipped = shouldAutoFlipForBlack(myColor);
       gameMode         = 'friend';
@@ -3844,6 +4023,7 @@ function findMatch() {
         slotUpdates[`games/${code}/players/joiner`]     = uid;
         slotUpdates[`games/${code}/usernames/joiner`]   = sanitizePlayerName(currentUsername || 'Player');
         slotUpdates[`games/${code}/colors/${uid}`]      = myColor;
+        if (currentGameRanked && myElo != null) slotUpdates[`games/${code}/playerElos/${uid}`] = myElo;
         await db.ref().update(slotUpdates);
       }
 
@@ -3889,7 +4069,7 @@ function findMatch() {
       let result;
       try {
         const claimStartedAt = Date.now();
-        result = await db.ref(`matchmaking/${opponentUid}`).transaction(current => {
+        result = await db.ref(`${queuePath}/${opponentUid}`).transaction(current => {
           if (current === null) return; // already gone
           if (!isFreshMatchmakingEntry(current, claimStartedAt)) return;
           return null;                  // claim it
@@ -3915,6 +4095,7 @@ function findMatch() {
 
       // Assign colors by UID sort — deterministic, same on both sides
       const iAmBlack = uid < opponentUid;
+      const opponentElo = isRanked ? normalizeElo(opponentData.elo) : null;
       myColor        = iAmBlack ? 'b' : 'w';
       isFlipped = shouldAutoFlipForBlack(myColor);
       gameMode       = 'friend';
@@ -3945,13 +4126,19 @@ function findMatch() {
         timerBlackSecs: QP_TIME_SECS,
         timerLimitSecs: QP_TIME_SECS,
         quickPlay:   true,
+        ranked:      isRanked,
+        matchType:   isRanked ? 'ranked' : 'unranked',
+        playerElos:  isRanked ? { [uid]: myElo, [opponentUid]: opponentElo } : null,
         createdAt:   firebase.database.ServerValue.TIMESTAMP
       };
 
+      currentGameRanked = isRanked;
+      currentGameElos = gameData.playerElos || {};
       await db.ref(`games/${friendJoinCode}`).set(gameData);
-      await db.ref(`matchmakingPairs/${opponentUid}`).set({
+      await db.ref(`${pairsPath}/${opponentUid}`).set({
         code: friendJoinCode,
         opponentUid: uid,
+        ranked: isRanked,
         createdAt: firebase.database.ServerValue.TIMESTAMP
       });
 
@@ -3960,7 +4147,7 @@ function findMatch() {
       setupGameListener(friendJoinCode, true);
     };
 
-    matchmakingListener = db.ref('matchmaking')
+    matchmakingListener = db.ref(queuePath)
       .orderByChild('joinedAt')
       .on('child_added', snap => tryPair(snap));
 
@@ -3975,13 +4162,14 @@ function findMatch() {
 
 
 function stopMatchmakingListener() {
+  const queuePath = matchmakingQueuePath();
   if (matchmakingListener) {
-    db.ref('matchmaking').orderByChild('joinedAt').off('child_added', matchmakingListener);
+    db.ref(queuePath).orderByChild('joinedAt').off('child_added', matchmakingListener);
     matchmakingListener = null;
   }
   // quickPlayGameListener is a .on('value') on the player's own matchmaking entry
   if (quickPlayGameListener && currentUser) {
-    db.ref(`matchmaking/${currentUser.uid}`).off('value', quickPlayGameListener);
+    db.ref(`${queuePath}/${currentUser.uid}`).off('value', quickPlayGameListener);
     quickPlayGameListener = null;
   }
   if (matchmakingPairsRef && matchmakingPairsListener) {
@@ -3996,6 +4184,8 @@ function cancelMatchmaking() {
   stopMatchmakingListener();
   db.ref(`matchmaking/${currentUser.uid}`).remove();
   db.ref(`matchmakingPairs/${currentUser.uid}`).remove();
+  db.ref(`matchmakingRanked/${currentUser.uid}`).remove();
+  db.ref(`matchmakingRankedPairs/${currentUser.uid}`).remove();
   document.getElementById('matchmakingStatus').style.display = 'none';
   document.getElementById('qpIdle').style.display            = 'block';
 }
@@ -4023,8 +4213,9 @@ async function loadLeaderboard() {
   const select = document.getElementById('leaderboardCategory');
   if (!list || !select || !db) return;
 
-  const category = select.value || 'wins';
+  const category = select.value || 'elo';
   const labels = {
+    elo: 'Elo',
     wins: 'wins',
     losses: 'losses',
     winRate: '%'
@@ -4040,6 +4231,8 @@ async function loadLeaderboard() {
     list.innerHTML = topRows.map((row, idx) => {
       const value = category === 'winRate'
         ? `${Number(row.winRate || 0).toFixed(1)}%`
+        : category === 'elo'
+        ? `${normalizeElo(row.elo)} Elo`
         : `${Number(row[category]) || 0} ${labels[category]}`;
       return `
         <div class="leaderboard-row">
@@ -4081,6 +4274,7 @@ function fillLeaderboardRows(rows, count) {
     filled.push({
       uid: `placeholder_${filled.length + 1}`,
       username: 'Player',
+      elo: STARTING_ELO,
       wins: 0,
       losses: 0,
       winRate: 0,
@@ -4105,6 +4299,7 @@ async function loadAllAccountLeaderboardRows() {
       return {
         uid,
         username,
+        elo: normalizeElo(stats.elo),
         wins,
         losses,
         winRate: decisiveGames > 0 ? Math.round((wins / decisiveGames) * 10000) / 100 : 0,
@@ -4114,6 +4309,7 @@ async function loadAllAccountLeaderboardRows() {
       return {
         uid,
         username,
+        elo: STARTING_ELO,
         wins: 0,
         losses: 0,
         winRate: 0,
@@ -4165,6 +4361,8 @@ function createFriendGame() {
     timerWhiteSecs: tcSecs,
     timerBlackSecs: tcSecs,
     timerLimitSecs: tcSecs,
+    ranked:         false,
+    matchType:      'friend',
     createdAt:      firebase.database.ServerValue.TIMESTAMP
   };
 
@@ -4444,6 +4642,8 @@ function exitFriendGame() {
   joinerUsername   = null;
   opponentUsername = null;
   onlinePlayerUidByColor = { w: null, b: null };
+  currentGameRanked = false;
+  currentGameElos = {};
   currentGameFriendRequests = {};
   currentGameFriendAccepts = {};
   currentGameFriendRemovals = {};
@@ -4494,7 +4694,8 @@ function acceptRematch() {
     halfMoveClock:  0,
     timerWhiteSecs: timerLimitSecs,
     timerBlackSecs: timerLimitSecs,
-    timerLimitSecs: timerLimitSecs
+    timerLimitSecs: timerLimitSecs,
+    createdAt:      firebase.database.ServerValue.TIMESTAMP
   };
   friendGameRef.update(resetData).then(() => {
     closeModal('gameOverModal');

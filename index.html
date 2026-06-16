@@ -380,6 +380,7 @@
         <h3 class="card-title">Game Info</h3>
         <div class="game-info-rows">
           <div class="info-row"><span>Mode</span><span id="infoMode">PvP</span></div>
+          <div class="info-row" id="infoRankedRow" style="display:none;"><span>Match</span><span id="infoRankedStatus">Unranked</span></div>
           <div class="info-row"><span>Status</span><span id="infoStatus" class="status-active">Active</span></div>
           <div class="info-row"><span>Half-moves</span><span id="infoMoves">0</span></div>
         </div>
@@ -483,15 +484,19 @@
           <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
           Quick Play
         </div>
-        <p class="online-section-sub">10-minute game — press the button and we'll pair you instantly.</p>
+        <p class="online-section-sub">10-minute game — choose casual or ranked matchmaking.</p>
 
-        <div id="qpIdle">
-          <button class="qp-solo-btn" onclick="findMatch()">
+        <div id="qpIdle" class="quick-play-choice">
+          <button class="qp-solo-btn" onclick="findUnrankedMatch()">
             <span class="qp-solo-icon">⚡</span>
-            <span class="qp-solo-label">Find Match</span>
-            <span class="qp-solo-sub">10 min · Rapid</span>
+            <span class="qp-solo-label">Find Match - Unranked</span>
+          </button>
+          <button class="qp-solo-btn ranked-quick-btn" id="rankedQuickPlayBtn" onclick="findRankedMatch()">
+            <span class="qp-solo-icon">♛</span>
+            <span class="qp-solo-label">Find Match - Ranked</span>
           </button>
         </div>
+        <div id="rankedGuestMessage" class="online-section-sub" style="display:none;margin-top:8px;">Create an account to play ranked games.</div>
 
         <div id="matchmakingStatus" style="display:none;" class="matchmaking-status">
           <span class="matchmaking-spinner"></span>
@@ -784,6 +789,7 @@
           <div class="stat-tile"><span>Losses</span><strong id="statLosses">0</strong></div>
           <div class="stat-tile"><span>Win Rate</span><strong id="statWinRate">0%</strong></div>
           <div class="stat-tile"><span>Draws</span><strong id="statDraws">0</strong></div>
+          <div class="stat-tile"><span>Current Elo</span><strong id="statElo">400</strong></div>
         </div>
       </div>
 
@@ -793,6 +799,11 @@
         <h3 class="account-section-title">Online Play</h3>
         <div class="stats-list">
           <div class="info-row"><span>Matches Played</span><span id="statMatches">0</span></div>
+          <div class="info-row"><span>Ranked Matches</span><span id="statRankedMatches">0</span></div>
+          <div class="info-row"><span>Ranked Wins</span><span id="statRankedWins">0</span></div>
+          <div class="info-row"><span>Ranked Losses</span><span id="statRankedLosses">0</span></div>
+          <div class="info-row"><span>Ranked Draws</span><span id="statRankedDraws">0</span></div>
+          <div class="info-row"><span>Unranked Matches</span><span id="statUnrankedMatches">0</span></div>
           <div class="info-row"><span>Checkmate Wins</span><span id="statCheckmateWins">0</span></div>
           <div class="info-row"><span>Timeout Wins</span><span id="statTimeoutWins">0</span></div>
           <div class="info-row"><span>Resignation Wins</span><span id="statResignWins">0</span></div>
@@ -824,6 +835,7 @@
       <div class="account-section">
         <h3 class="account-section-title">Category</h3>
         <select class="timer-select" id="leaderboardCategory" onchange="loadLeaderboard()" style="width:100%;">
+          <option value="elo">Highest Elo</option>
           <option value="wins">Most Wins</option>
           <option value="losses">Most Losses</option>
           <option value="winRate">Win/Loss Percentage</option>

@@ -1189,6 +1189,9 @@ body.hide-legal-moves .square.legal-capture::after {
   :root { --board-max: 380px; }
   .panel-left, .panel-right { grid-template-columns: 1fr; }
   .move-list { max-height: 160px; }
+  .quick-play-choice {
+    grid-template-columns: 1fr;
+  }
   .settings-theme-grid {
     grid-template-columns: 1fr;
   }
@@ -2212,7 +2215,13 @@ body.hide-legal-moves .square.legal-capture::after {
   margin: 20px 0;
 }
 
-/* ── Quick Play — single button ── */
+.quick-play-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* ── Quick Play ── */
 .qp-solo-btn {
   display: flex;
   flex-direction: column;
@@ -2235,9 +2244,34 @@ body.hide-legal-moves .square.legal-capture::after {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px var(--green-glow);
 }
+
+.ranked-quick-btn {
+  border-color: var(--green-dark);
+  background: linear-gradient(180deg, rgba(77, 158, 94, 0.14), var(--bg-panel));
+}
+
+.ranked-quick-btn .qp-solo-icon,
+.ranked-quick-btn .qp-solo-label {
+  color: var(--green-bright);
+}
+
 .qp-solo-icon  { font-size: 2rem; line-height: 1; }
 .qp-solo-label { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
 .qp-solo-sub   { font-size: 0.78rem; color: var(--text-muted); }
+
+.elo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 2px 6px;
+  border: 1px solid var(--green-dark);
+  border-radius: 999px;
+  background: var(--green-subtle);
+  color: var(--green-bright);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
 
 /* Remove the old qp-grid styles (kept for reference, no-op now) */
 .qp-grid { display: none; }
