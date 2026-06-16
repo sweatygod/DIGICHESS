@@ -134,6 +134,7 @@ let currentGameFriendAccepts = {};
 let currentGameFriendRemovals = {};
 let mirroredInGameFriendRequests = new Set();
 let mirroredInGameFriendAccepts = new Set();
+let mirroredInGameFriendRemovals = new Set();
 let recordedGameStats = new Set();
 let recordedFriendStats = new Set();
 
@@ -1760,6 +1761,7 @@ function emptyStats() {
     checkmateWins: 0,
     timeoutWins: 0,
     resignWins: 0,
+    currentFriends: 0,
     friendsMadeInMatches: 0
   };
 }
@@ -1772,11 +1774,15 @@ async function loadStatsModal(uid = currentUser?.uid, displayName = currentUsern
   const statsSnap = await db.ref(`users/${uid}/stats`).once('value');
   const stats = { ...emptyStats(), ...(statsSnap.val() || {}) };
   if (publishOwn) publishLeaderboardStats(stats).catch(err => console.warn('Unable to publish leaderboard stats:', err));
-  let currentFriends = '-';
-  try {
-    const friendsSnap = await db.ref(`users/${uid}/friends`).once('value');
-    currentFriends = Object.keys(friendsSnap.val() || {}).length;
-  } catch (_) {}
+  let currentFriends = Number(stats.currentFriends) || 0;
+  if (uid === currentUser?.uid) {
+    try {
+      const friendsSnap = await db.ref(`users/${uid}/friends`).once('value');
+      currentFriends = Object.keys(friendsSnap.val() || {}).length;
+      stats.currentFriends = currentFriends;
+      await syncOwnFriendCountStat(currentFriends);
+    } catch (_) {}
+  }
   const decisiveGames = stats.wins + stats.losses;
   const winRate = decisiveGames > 0 ? Math.round((stats.wins / decisiveGames) * 100) : 0;
   const avgFriends = stats.onlineMatches > 0 ? (stats.friendsMadeInMatches / stats.onlineMatches).toFixed(2) : '0.00';
@@ -1816,6 +1822,7 @@ async function incrementUserStats(delta, recordPath = null) {
     const stats = { ...emptyStats(), ...(current || {}) };
     Object.entries(delta).forEach(([key, amount]) => {
       stats[key] = (Number(stats[key]) || 0) + amount;
+      if (key === 'currentFriends') stats[key] = Math.max(0, stats[key]);
     });
     return stats;
   }).then(result => {
@@ -1825,6 +1832,16 @@ async function incrementUserStats(delta, recordPath = null) {
       });
     }
   });
+}
+
+async function syncOwnFriendCountStat(friendCount) {
+  if (!currentUser || currentUser.isAnonymous || !db) return;
+  await db.ref(`users/${currentUser.uid}/stats/currentFriends`).set(Math.max(0, Number(friendCount) || 0));
+}
+
+async function adjustOwnFriendCountStat(delta) {
+  if (!currentUser || currentUser.isAnonymous || !db) return;
+  await incrementUserStats({ currentFriends: delta });
 }
 
 async function publishLeaderboardStats(stats = null) {
@@ -2055,6 +2072,7 @@ async function loadFriendsModal() {
   const friendsList = document.getElementById('friendsList');
   friendsList.innerHTML = '';
   const friendUids = Object.keys(friends);
+  syncOwnFriendCountStat(friendUids.length).catch(err => console.warn('Unable to sync friend count:', err));
   if (friendUids.length === 0) {
     friendsList.innerHTML = '<p class="friends-empty">No friends yet. Add someone below!</p>';
   } else {
@@ -2191,6 +2209,11 @@ async function sendFriendRequest() {
 
 async function acceptFriendRequest(fromUid, fromName) {
   const myUid = currentUser.uid;
+  let wasAlreadyFriend = false;
+  try {
+    const existingFriendSnap = await db.ref(`users/${myUid}/friends/${fromUid}`).once('value');
+    wasAlreadyFriend = existingFriendSnap.exists();
+  } catch (_) {}
   const displayFromName = sanitizePlayerName(
     fromName && fromName !== fromUid ? fromName : getOnlinePlayerNameByUid(fromUid),
     'Player'
@@ -2229,7 +2252,10 @@ async function acceptFriendRequest(fromUid, fromName) {
   }
 
   loadFriendsModal(); // refresh
-  recordFriendMadeInMatch(fromUid);
+  if (!wasAlreadyFriend) {
+    adjustOwnFriendCountStat(1).catch(err => console.warn('Unable to update friend count:', err));
+    recordFriendMadeInMatch(fromUid);
+  }
   updateGameInfo();
 }
 
@@ -2241,6 +2267,11 @@ async function declineFriendRequest(fromUid) {
 async function removeFriend(fuid, fname) {
   if (!confirm(`Remove ${fname} from your friends?`)) return;
   const myUid = currentUser.uid;
+  let wasFriend = true;
+  try {
+    const existingFriendSnap = await db.ref(`users/${myUid}/friends/${fuid}`).once('value');
+    wasFriend = existingFriendSnap.exists();
+  } catch (_) {}
   const updates = {};
   updates[`users/${myUid}/friends/${fuid}`]  = null;
   updates[`users/${fuid}/friends/${myUid}`]  = null;
@@ -2272,6 +2303,9 @@ async function removeFriend(fuid, fname) {
     updateGameInfo();
   }
 
+  if (wasFriend) {
+    adjustOwnFriendCountStat(-1).catch(err => console.warn('Unable to update friend count:', err));
+  }
   loadFriendsModal();
 }
 
@@ -3036,16 +3070,46 @@ function mirrorInGameFriendAccepts(gameData) {
     if (mirroredInGameFriendAccepts.has(acceptKey)) return;
     mirroredInGameFriendAccepts.add(acceptKey);
 
-    db.ref(`users/${currentUser.uid}/friends/${fromUid}`).set({
-      username: sanitizePlayerName(accept.fromUsername),
-      addedAt: accept.acceptedAt || firebase.database.ServerValue.TIMESTAMP
-    }).then(() => {
+    db.ref(`users/${currentUser.uid}/friends/${fromUid}`).once('value').then(existingFriendSnap => {
+      const wasAlreadyFriend = existingFriendSnap.exists();
+      return db.ref(`users/${currentUser.uid}/friends/${fromUid}`).set({
+        username: sanitizePlayerName(accept.fromUsername),
+        addedAt: accept.acceptedAt || firebase.database.ServerValue.TIMESTAMP
+      }).then(() => wasAlreadyFriend);
+    }).then(wasAlreadyFriend => {
       db.ref(`users/${currentUser.uid}/friendRequests/${fromUid}`).remove().catch(() => {});
-      recordFriendMadeInMatch(fromUid);
+      if (!wasAlreadyFriend) {
+        adjustOwnFriendCountStat(1).catch(err => console.warn('Unable to update friend count:', err));
+        recordFriendMadeInMatch(fromUid);
+      }
       updateGameInfo();
     }).catch(err => {
       mirroredInGameFriendAccepts.delete(acceptKey);
       console.error('Failed to mirror in-game friend acceptance:', err);
+    });
+  });
+}
+
+function mirrorInGameFriendRemovals(gameData) {
+  if (!currentUser || !db || !gameData?.friendRemovals) return;
+
+  Object.entries(gameData.friendRemovals).forEach(([fromUid, removal]) => {
+    if (!removal || removal.toUid !== currentUser.uid || fromUid === currentUser.uid) return;
+    const removalKey = `${fromUid}:${removal.removedAt || 'removed'}`;
+    if (mirroredInGameFriendRemovals.has(removalKey)) return;
+    mirroredInGameFriendRemovals.add(removalKey);
+
+    db.ref(`users/${currentUser.uid}/friends/${fromUid}`).once('value').then(existingFriendSnap => {
+      if (!existingFriendSnap.exists()) return false;
+      return db.ref(`users/${currentUser.uid}/friends/${fromUid}`).remove().then(() => true);
+    }).then(wasFriend => {
+      if (wasFriend) {
+        adjustOwnFriendCountStat(-1).catch(err => console.warn('Unable to update friend count:', err));
+      }
+      updateGameInfo();
+    }).catch(err => {
+      mirroredInGameFriendRemovals.delete(removalKey);
+      console.error('Failed to mirror in-game friend removal:', err);
     });
   });
 }
@@ -3600,6 +3664,7 @@ function setupGameListener(code, closeOnStart) {
     syncLocalNamesFromGame(gameData);
     mirrorInGameFriendRequests(gameData);
     mirrorInGameFriendAccepts(gameData);
+    mirrorInGameFriendRemovals(gameData);
     recordOnlineGameStatsIfNeeded(gameData);
 
     // ── Waiting for second player ──
@@ -3771,6 +3836,7 @@ function exitFriendGame() {
   currentGameFriendRemovals = {};
   mirroredInGameFriendRequests = new Set();
   mirroredInGameFriendAccepts = new Set();
+  mirroredInGameFriendRemovals = new Set();
   newGame();
 }
 
