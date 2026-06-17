@@ -46,6 +46,14 @@
     "matchmaking": {
       ".read": "auth != null",
       ".indexOn": ["joinedAt"],
+      "ranked": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",
+        ".indexOn": ["joinedAt"],
+        "$uid": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",
+          ".write": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true"
+        }
+      },
       "$uid": {
         ".read": "auth != null",
         ".write": "auth != null"
@@ -53,7 +61,11 @@
     },
     "matchmakingPairs": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      ".write": "auth != null",
+      "ranked": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true"
+      }
     },
     "matchmakingRanked": {
       ".read": "auth != null && root.child('users').child(auth.uid).child('isGuest').val() !== true",

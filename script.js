@@ -171,6 +171,8 @@ let currentGameFriendRemovals = {};
 let currentDrawOffer = null;
 let handledDrawOffers = new Set();
 let drawOfferModalKey = null;
+let activeGameOverModalKey = null;
+let dismissedGameOverKeys = new Set();
 let mirroredInGameFriendRequests = new Set();
 let mirroredInGameFriendAccepts = new Set();
 let mirroredInGameFriendRemovals = new Set();
@@ -1061,7 +1063,8 @@ function triggerGameOver(reason, lastNotation, forcedLoserColor = null) {
  * Renders the game-over modal. Pass rematchPending=true when the other player
  * has already requested a rematch, so the button says "Accept Rematch".
  */
-function showGameOverModal(title, sub, icon, rematchPending = false) {
+function showGameOverModal(title, sub, icon, rematchPending = false, modalKey = null) {
+  activeGameOverModalKey = modalKey;
   setTimeout(() => {
     document.getElementById('gameOverIcon').textContent  = icon;
     document.getElementById('gameOverTitle').textContent = title;
@@ -1097,6 +1100,11 @@ function showGameOverModal(title, sub, icon, rematchPending = false) {
       if (rematchBtn)   rematchBtn.style.display   = 'none';
     }
   }, 300);
+}
+
+function dismissGameOverModal() {
+  if (activeGameOverModalKey) dismissedGameOverKeys.add(activeGameOverModalKey);
+  closeModal('gameOverModal');
 }
 
 function showDrawOfferModal(offer) {
@@ -1196,7 +1204,7 @@ function handleDrawOfferSnapshot(gameData) {
 
   if (!offer) {
     currentDrawOffer = null;
-    drawOfferModalKey = null;
+    if (!gameData?.gameOver) drawOfferModalKey = null;
     if (btn && !gameOver) {
       btn.disabled = false;
       btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 3a1 1 0 000 2h6a1 1 0 100-2H7zm0 4a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/></svg> Draw';
@@ -1218,6 +1226,11 @@ function handleDrawOfferSnapshot(gameData) {
     handledDrawOffers.add(offerKey);
     showDrawOfferModal(offer);
   }
+}
+
+function onlineGameOverKey(gameData) {
+  if (!gameData?.gameOver || !gameData.gameOverReason) return null;
+  return safeDbKey(`${friendJoinCode || 'game'}_${gameData.createdAt || 'created'}_${gameData.gameOverReason}_${gameData.gameOverWinner || 'none'}`);
 }
 
 /* ══════════════════════════════════════════
@@ -4062,11 +4075,11 @@ function isFreshMatchmakingEntry(entry, now = Date.now()) {
 }
 
 function matchmakingQueuePath(isRanked = activeMatchmakingRanked) {
-  return isRanked ? 'matchmakingRanked' : 'matchmaking';
+  return isRanked ? 'matchmaking/ranked' : 'matchmaking';
 }
 
 function matchmakingPairsPath(isRanked = activeMatchmakingRanked) {
-  return isRanked ? 'matchmakingRankedPairs' : 'matchmakingPairs';
+  return isRanked ? 'matchmakingPairs/ranked' : 'matchmakingPairs';
 }
 
 function findUnrankedMatch() {
@@ -4118,8 +4131,12 @@ function findMatch(isRanked = false) {
 
     await myPairRef.remove().catch(() => {});
     await myRef.remove().catch(() => {});
-    await db.ref(`${isRanked ? 'matchmakingPairs' : 'matchmakingRankedPairs'}/${uid}`).remove().catch(() => {});
-    await db.ref(`${isRanked ? 'matchmaking' : 'matchmakingRanked'}/${uid}`).remove().catch(() => {});
+    await db.ref(`matchmakingPairs/ranked/${uid}`).remove().catch(() => {});
+    await db.ref(`matchmaking/ranked/${uid}`).remove().catch(() => {});
+    if (isRanked) {
+      await db.ref(`matchmakingPairs/${uid}`).remove().catch(() => {});
+      await db.ref(`matchmaking/${uid}`).remove().catch(() => {});
+    }
     await myRef.set({
       username: myUsername,
       ranked: isRanked,
@@ -4309,8 +4326,8 @@ function handleMatchmakingError(err) {
   if (currentUser && db) {
     db.ref(`matchmaking/${currentUser.uid}`).remove().catch(() => {});
     db.ref(`matchmakingPairs/${currentUser.uid}`).remove().catch(() => {});
-    db.ref(`matchmakingRanked/${currentUser.uid}`).remove().catch(() => {});
-    db.ref(`matchmakingRankedPairs/${currentUser.uid}`).remove().catch(() => {});
+    db.ref(`matchmaking/ranked/${currentUser.uid}`).remove().catch(() => {});
+    db.ref(`matchmakingPairs/ranked/${currentUser.uid}`).remove().catch(() => {});
   }
   stopMatchmakingListener();
   const status = document.getElementById('matchmakingStatus');
@@ -4346,8 +4363,8 @@ function cancelMatchmaking() {
   stopMatchmakingListener();
   db.ref(`matchmaking/${currentUser.uid}`).remove();
   db.ref(`matchmakingPairs/${currentUser.uid}`).remove();
-  db.ref(`matchmakingRanked/${currentUser.uid}`).remove();
-  db.ref(`matchmakingRankedPairs/${currentUser.uid}`).remove();
+  db.ref(`matchmaking/ranked/${currentUser.uid}`).remove();
+  db.ref(`matchmakingPairs/ranked/${currentUser.uid}`).remove();
   document.getElementById('matchmakingStatus').style.display = 'none';
   document.getElementById('qpIdle').style.display            = 'grid';
 }
@@ -4703,6 +4720,8 @@ function setupGameListener(code, closeOnStart) {
       const modalOpen = document.getElementById('gameOverModal').style.display !== 'none';
       if (modalOpen) {
         closeModal('gameOverModal');
+        activeGameOverModalKey = null;
+        dismissedGameOverKeys = new Set();
         isFlipped = shouldAutoFlipForBlack(localMyColor);
         initGame();
         updateGameInfo();
@@ -4718,7 +4737,15 @@ function setupGameListener(code, closeOnStart) {
     updateTimerActiveState();
     if (gameData.gameOver && gameData.gameOverTitle) {
       const modalAlreadyOpen = document.getElementById('gameOverModal').style.display !== 'none';
-      const shouldReplaceDrawOffer = gameData.gameOverReason === 'agreedDraw' && drawOfferModalKey;
+      const gameOverKey = onlineGameOverKey(gameData);
+      if (modalAlreadyOpen && gameOverKey && !activeGameOverModalKey) {
+        activeGameOverModalKey = gameOverKey;
+      }
+      const shouldReplaceDrawOffer = gameData.gameOverReason === 'agreedDraw' && (drawOfferModalKey || modalAlreadyOpen);
+      if (dismissedGameOverKeys.has(gameOverKey) && !shouldReplaceDrawOffer) {
+        stopTimers();
+        return;
+      }
       if (!modalAlreadyOpen || shouldReplaceDrawOffer) {
         drawOfferModalKey = null;
         // Opponent triggered game over — show modal on our screen too
@@ -4727,7 +4754,8 @@ function setupGameListener(code, closeOnStart) {
           gameData.gameOverTitle,
           gameData.gameOverSub   || '',
           gameData.gameOverIcon  || '♚',
-          rematchPending
+          rematchPending,
+          gameOverKey
         );
         stopTimers();
       } else if (gameData.rematchRequest && gameData.rematchRequest !== currentUser?.uid) {
