@@ -4162,13 +4162,23 @@ function playerNameForSlot(gameData, slot, fallback = 'Player') {
   return sanitizePlayerName(names[slot], fallback);
 }
 
+function displayElosFromGame(gameData) {
+  const displayElos = { ...(gameData?.playerElos || {}) };
+  Object.entries(gameData?.eloResults || {}).forEach(([uid, result]) => {
+    if (!uid || !result) return;
+    const rawNewElo = Number(result.newElo);
+    if (Number.isFinite(rawNewElo)) displayElos[uid] = normalizeElo(rawNewElo);
+  });
+  return displayElos;
+}
+
 function syncLocalNamesFromGame(gameData) {
   if (!gameData) return;
   const mySlot = playerSlotForUid(gameData, currentUser?.uid);
   const otherSlot = mySlot === 'host' ? 'joiner' : mySlot === 'joiner' ? 'host' : null;
   onlinePlayerUidByColor = { w: null, b: null };
   currentGameRanked = gameData.ranked === true;
-  currentGameElos = gameData.playerElos || {};
+  currentGameElos = displayElosFromGame(gameData);
   currentDrawOffer = gameData.drawOffer || null;
   currentGameFriendRequests = gameData.friendRequests || {};
   currentGameFriendAccepts = gameData.friendAccepts || {};
