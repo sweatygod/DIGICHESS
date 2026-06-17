@@ -168,6 +168,9 @@ let currentGameElos = {};
 let currentGameFriendRequests = {};
 let currentGameFriendAccepts = {};
 let currentGameFriendRemovals = {};
+let currentDrawOffer = null;
+let handledDrawOffers = new Set();
+let drawOfferModalKey = null;
 let mirroredInGameFriendRequests = new Set();
 let mirroredInGameFriendAccepts = new Set();
 let mirroredInGameFriendRemovals = new Set();
@@ -204,7 +207,7 @@ function openPlayOnlineModal() {
   document.getElementById('joinCodeDisplay').style.display    = 'none';
   document.getElementById('friendJoinCode').value             = '';
   document.getElementById('matchmakingStatus').style.display  = 'none';
-  document.getElementById('qpIdle').style.display             = 'block';
+  document.getElementById('qpIdle').style.display             = 'grid';
 
   const rankedBtn = document.getElementById('rankedQuickPlayBtn');
   const rankedGuestMessage = document.getElementById('rankedGuestMessage');
@@ -1048,6 +1051,7 @@ function triggerGameOver(reason, lastNotation, forcedLoserColor = null) {
       timerWhiteSecs:  timerWhiteSecs,
       timerBlackSecs:  timerBlackSecs,
       timerLimitSecs:  timerLimitSecs,
+      drawOffer:       null,
       rematchRequest:  null           // clear any prior rematch on new game-over
     });
   }
@@ -1068,6 +1072,14 @@ function showGameOverModal(title, sub, icon, rematchPending = false) {
 
     const playAgainBtn = document.getElementById('playAgainBtn');
     const rematchBtn   = document.getElementById('rematchBtn');
+    const dismissBtn   = document.getElementById('gameOverDismissBtn');
+    if (playAgainBtn) {
+      playAgainBtn.textContent = 'Play Again';
+      playAgainBtn.disabled = false;
+      playAgainBtn.onclick = newGame;
+    }
+    if (rematchBtn) rematchBtn.disabled = false;
+    if (dismissBtn) dismissBtn.style.display = 'inline-flex';
     if (gameMode === 'friend') {
       if (playAgainBtn) playAgainBtn.style.display = 'none';
       if (rematchBtn) {
@@ -1085,6 +1097,127 @@ function showGameOverModal(title, sub, icon, rematchPending = false) {
       if (rematchBtn)   rematchBtn.style.display   = 'none';
     }
   }, 300);
+}
+
+function showDrawOfferModal(offer) {
+  if (!offer || offer.fromUid === currentUser?.uid) return;
+  const offerKey = `${offer.fromUid}_${offer.requestedAt || 'pending'}`;
+  if (drawOfferModalKey === offerKey) return;
+  drawOfferModalKey = offerKey;
+
+  setTimeout(() => {
+    document.getElementById('gameOverIcon').textContent  = '½';
+    document.getElementById('gameOverTitle').textContent = `${sanitizePlayerName(offer.fromUsername, 'Opponent')} has requested a draw`;
+    document.getElementById('gameOverSub').textContent   = 'Accepting will end this game as a draw.';
+    document.getElementById('gameOverModal').style.display = 'flex';
+
+    const playAgainBtn = document.getElementById('playAgainBtn');
+    const rematchBtn   = document.getElementById('rematchBtn');
+    const dismissBtn   = document.getElementById('gameOverDismissBtn');
+    if (dismissBtn) dismissBtn.style.display = 'none';
+    if (playAgainBtn) {
+      playAgainBtn.style.display = 'inline-flex';
+      playAgainBtn.textContent = 'Accept';
+      playAgainBtn.disabled = false;
+      playAgainBtn.onclick = acceptDrawOffer;
+    }
+    if (rematchBtn) {
+      rematchBtn.style.display = 'inline-flex';
+      rematchBtn.textContent = 'Decline';
+      rematchBtn.disabled = false;
+      rematchBtn.onclick = declineDrawOffer;
+    }
+  }, 120);
+}
+
+function clearDrawOfferModalIfOpen() {
+  if (!drawOfferModalKey) return;
+  drawOfferModalKey = null;
+  closeModal('gameOverModal');
+}
+
+function requestDraw() {
+  if (gameOver) return;
+  if (gameMode !== 'friend' || !friendGameRef || !currentUser) {
+    alert('Draw offers are only available in online games.');
+    return;
+  }
+  const offer = {
+    fromUid: currentUser.uid,
+    fromUsername: sanitizePlayerName(currentUsername, 'Player'),
+    requestedAt: firebase.database.ServerValue.TIMESTAMP
+  };
+  friendGameRef.child('drawOffer').set(offer).then(() => {
+    const btn = document.getElementById('drawOfferBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Draw Requested';
+    }
+  }).catch(err => {
+    console.error('Draw request failed:', err);
+    alert('Unable to send draw request right now.');
+  });
+}
+
+function acceptDrawOffer() {
+  if (!friendGameRef || !currentDrawOffer || !currentUser) return;
+  gameOver = true;
+  stopTimers();
+  friendGameRef.update({
+    ...gameStateForFirebase(),
+    gameOver:        true,
+    gameOverReason:  'agreedDraw',
+    gameOverWinner:  'Draw',
+    gameOverTitle:   'Draw',
+    gameOverSub:     'Both players have accepted a draw.',
+    gameOverIcon:    '½',
+    drawOffer:       null,
+    timerWhiteSecs:  timerWhiteSecs,
+    timerBlackSecs:  timerBlackSecs,
+    timerLimitSecs:  timerLimitSecs,
+    rematchRequest:  null
+  }).catch(err => {
+    console.error('Accept draw failed:', err);
+  });
+}
+
+function declineDrawOffer() {
+  if (!friendGameRef) return;
+  friendGameRef.child('drawOffer').remove().then(() => {
+    clearDrawOfferModalIfOpen();
+  }).catch(err => {
+    console.error('Decline draw failed:', err);
+  });
+}
+
+function handleDrawOfferSnapshot(gameData) {
+  const btn = document.getElementById('drawOfferBtn');
+  const offer = gameData?.drawOffer || null;
+
+  if (!offer) {
+    currentDrawOffer = null;
+    drawOfferModalKey = null;
+    if (btn && !gameOver) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 3a1 1 0 000 2h6a1 1 0 100-2H7zm0 4a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/></svg> Draw';
+    }
+    return;
+  }
+
+  currentDrawOffer = offer;
+  if (offer.fromUid === currentUser?.uid) {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Draw Requested';
+    }
+    return;
+  }
+
+  const offerKey = `${offer.fromUid}_${offer.requestedAt || 'pending'}`;
+  if (!handledDrawOffers.has(offerKey) && !gameData.gameOver) {
+    handledDrawOffers.add(offerKey);
+    showDrawOfferModal(offer);
+  }
 }
 
 /* ══════════════════════════════════════════
@@ -2355,6 +2488,7 @@ function calculateEloChange(playerElo, opponentElo, actualScore) {
 }
 
 function scoreForRankedResult(gameData, myDisplayColor) {
+  if (gameData.gameOverReason === 'agreedDraw') return null;
   if (gameData.gameOverReason === 'stalemate') return 0.5;
   return gameData.gameOverWinner === myDisplayColor ? 1 : 0;
 }
@@ -2376,6 +2510,7 @@ async function applyRankedEloChange(gameData, gameKey) {
   const playerElos = gameData.playerElos || {};
   const myDisplayColor = myColor === 'w' ? 'White' : 'Black';
   const actualScore = scoreForRankedResult(gameData, myDisplayColor);
+  if (actualScore === null) return;
   const opponentElo = normalizeElo(playerElos[opponentUid]);
 
   await db.ref(`users/${currentUser.uid}/stats`).transaction(current => {
@@ -2499,6 +2634,7 @@ async function publishLeaderboardStats(stats = null, usernameOverride = currentU
 
 function recordOnlineGameStatsIfNeeded(gameData) {
   if (!currentUser || currentUser.isAnonymous || !gameData?.gameOver || !gameData.gameOverReason) return;
+  if (gameData.gameOverReason === 'agreedDraw') return;
   if (gameMode !== 'friend') return;
   if (!friendJoinCode || !myColor) return;
   const players = gameData.players || {};
@@ -3657,6 +3793,7 @@ function syncLocalNamesFromGame(gameData) {
   onlinePlayerUidByColor = { w: null, b: null };
   currentGameRanked = gameData.ranked === true;
   currentGameElos = gameData.playerElos || {};
+  currentDrawOffer = gameData.drawOffer || null;
   currentGameFriendRequests = gameData.friendRequests || {};
   currentGameFriendAccepts = gameData.friendAccepts || {};
   currentGameFriendRemovals = gameData.friendRemovals || {};
@@ -3756,6 +3893,7 @@ function gameSnapshotSignature(gameData) {
     friendRequests: gameData.friendRequests || null,
     friendAccepts: gameData.friendAccepts || null,
     friendRemovals: gameData.friendRemovals || null,
+    drawOffer: gameData.drawOffer || null,
     ranked: gameData.ranked === true,
     matchType: gameData.matchType || null,
     playerElos: gameData.playerElos || null
@@ -4048,9 +4186,9 @@ function findMatch(isRanked = false) {
         console.error('Quick play match handoff failed:', err);
         paired = false;
         document.getElementById('matchmakingStatus').style.display = 'none';
-        document.getElementById('qpIdle').style.display            = 'block';
+        document.getElementById('qpIdle').style.display            = 'grid';
       }
-    });
+    }, handleMatchmakingError);
 
     // ── Try to claim an opponent from the queue ──
     const tryPair = async snap => {
@@ -4149,15 +4287,39 @@ function findMatch(isRanked = false) {
 
     matchmakingListener = db.ref(queuePath)
       .orderByChild('joinedAt')
-      .on('child_added', snap => tryPair(snap));
+      .on('child_added', snap => tryPair(snap), handleMatchmakingError);
+
+    db.ref(queuePath).orderByChild('joinedAt').once('value').then(queueSnap => {
+      queueSnap.forEach(childSnap => {
+        tryPair(childSnap);
+      });
+    }).catch(handleMatchmakingError);
 
     // ── Watch our OWN entry — when it disappears we were claimed ──
     quickPlayGameListener = myRef.on('value', async snap => {
       if (snap.exists()) return; // still in queue
       if (paired) return;
       document.getElementById('matchmakingText').textContent = 'Match found! Finalizing game…';
-    });
-  });
+    }, handleMatchmakingError);
+  }).catch(handleMatchmakingError);
+}
+
+function handleMatchmakingError(err) {
+  console.error('Matchmaking failed:', err);
+  if (currentUser && db) {
+    db.ref(`matchmaking/${currentUser.uid}`).remove().catch(() => {});
+    db.ref(`matchmakingPairs/${currentUser.uid}`).remove().catch(() => {});
+    db.ref(`matchmakingRanked/${currentUser.uid}`).remove().catch(() => {});
+    db.ref(`matchmakingRankedPairs/${currentUser.uid}`).remove().catch(() => {});
+  }
+  stopMatchmakingListener();
+  const status = document.getElementById('matchmakingStatus');
+  const idle = document.getElementById('qpIdle');
+  const text = document.getElementById('matchmakingText');
+  if (text) text.textContent = 'Unable to search right now. Please try again.';
+  if (status) status.style.display = 'none';
+  if (idle) idle.style.display = 'grid';
+  alert('Unable to search for a match right now. Please try again.');
 }
 
 
@@ -4187,7 +4349,7 @@ function cancelMatchmaking() {
   db.ref(`matchmakingRanked/${currentUser.uid}`).remove();
   db.ref(`matchmakingRankedPairs/${currentUser.uid}`).remove();
   document.getElementById('matchmakingStatus').style.display = 'none';
-  document.getElementById('qpIdle').style.display            = 'block';
+  document.getElementById('qpIdle').style.display            = 'grid';
 }
 
 /** Leaderboards — stub modal */
@@ -4473,6 +4635,7 @@ function setupGameListener(code, closeOnStart) {
     mirrorInGameFriendAccepts(gameData);
     mirrorInGameFriendRemovals(gameData);
     recordOnlineGameStatsIfNeeded(gameData);
+    handleDrawOfferSnapshot(gameData);
 
     // ── Waiting for second player ──
     if (!gameStarted) {
@@ -4486,6 +4649,7 @@ function setupGameListener(code, closeOnStart) {
       // Hide the modal directly — avoids closeModal() triggering cancelMatchmaking()
       const fModal = document.getElementById('friendModal');
       if (fModal) fModal.style.display = 'none';
+      showGamePage();
 
       // White (joiner): isFlipped = false → white at bottom
       // Black (host):   isFlipped = true  → black at bottom
@@ -4554,7 +4718,9 @@ function setupGameListener(code, closeOnStart) {
     updateTimerActiveState();
     if (gameData.gameOver && gameData.gameOverTitle) {
       const modalAlreadyOpen = document.getElementById('gameOverModal').style.display !== 'none';
-      if (!modalAlreadyOpen) {
+      const shouldReplaceDrawOffer = gameData.gameOverReason === 'agreedDraw' && drawOfferModalKey;
+      if (!modalAlreadyOpen || shouldReplaceDrawOffer) {
+        drawOfferModalKey = null;
         // Opponent triggered game over — show modal on our screen too
         const rematchPending = !!(gameData.rematchRequest && gameData.rematchRequest !== currentUser?.uid);
         showGameOverModal(
@@ -4644,6 +4810,9 @@ function exitFriendGame() {
   onlinePlayerUidByColor = { w: null, b: null };
   currentGameRanked = false;
   currentGameElos = {};
+  currentDrawOffer = null;
+  handledDrawOffers = new Set();
+  drawOfferModalKey = null;
   currentGameFriendRequests = {};
   currentGameFriendAccepts = {};
   currentGameFriendRemovals = {};
@@ -4686,6 +4855,7 @@ function acceptRematch() {
     gameOverReason: null,
     gameOverWinner: null,
     rematchRequest: null,
+    drawOffer:      null,
     lastMove:       null,
     enPassantSq:    null,
     castlingRights: { wK: true, wQ: true, bK: true, bQ: true },
