@@ -185,6 +185,8 @@ let onlinePositionSnapshots = [];
 let onlineReviewIndex = null;
 let onlineLiveSnapshot = null;
 let aiReviewSnapshots = [];
+let aiReviewIndex = null;
+let aiLiveSnapshot = null;
 let isReviewMode = false;
 let reviewMoves = [];
 let currentReviewIndex = 0;
@@ -301,8 +303,12 @@ function initGame() {
   renderBoard();
   if (gameMode === 'ai') {
     aiReviewSnapshots = [createBoardSnapshot()];
+    aiReviewIndex = null;
+    aiLiveSnapshot = createBoardSnapshot();
   } else if (gameMode !== 'friend') {
     aiReviewSnapshots = [];
+    aiReviewIndex = null;
+    aiLiveSnapshot = null;
   }
   renderMoveHistory();
   updateStatusBar();
@@ -345,6 +351,8 @@ function handleBoardNewGameClick() {
 
 function updateBoardControls() {
   const isOnline = gameMode === 'friend';
+  const isAI = gameMode === 'ai';
+  const canViewHistory = isOnline || isAI;
   const showOnlineNewGame = isOnline && gameOver;
   const newGameBtn = document.getElementById('boardNewGameBtn');
   const controlIds = ['boardUndoBtn', 'resetBoardViewBtn', 'boardFlipBtn', 'drawOfferBtn', 'boardResignBtn'];
@@ -361,10 +369,16 @@ function updateBoardControls() {
       return;
     }
     if (id === 'resetBoardViewBtn') {
-      el.style.display = isOnline && !gameOver ? 'inline-flex' : 'none';
-      el.disabled = onlineReviewIndex === null;
+      el.style.display = canViewHistory && !gameOver ? 'inline-flex' : 'none';
+      el.disabled = isOnline ? onlineReviewIndex === null : aiReviewIndex === null;
+    } else if (id === 'drawOfferBtn' || id === 'boardResignBtn') {
+      el.style.display = isAI || showOnlineNewGame ? 'none' : 'inline-flex';
+    } else if (id === 'boardUndoBtn') {
+      el.style.display = showOnlineNewGame ? 'none' : 'inline-flex';
+      el.disabled = isAI && aiThinking;
     } else {
       el.style.display = showOnlineNewGame ? 'none' : 'inline-flex';
+      el.disabled = false;
     }
   });
 }
@@ -485,7 +499,7 @@ function renderCoords() {
 function onSquareClick(row, col) {
   if (isReviewMode) return;
   if (gameOver) return;
-  if (onlineReviewIndex !== null) return;
+  if (onlineReviewIndex !== null || aiReviewIndex !== null) return;
 
   // In online games, only allow moves on your own turn
   if (gameMode === 'friend' && myColor !== currentTurn) return;
@@ -715,6 +729,7 @@ function handleStockfishMessage(event) {
   const pending = stockfishPending;
   stockfishPending = null;
   aiThinking = false;
+  updateBoardControls();
 
   if (pending?.type === 'review') {
     pending.resolve(bestMove);
@@ -743,6 +758,7 @@ function makeAIMove() {
   stockfishRequestId++;
   stockfishPending = { id: stockfishRequestId, fen };
   setAIStatus(`${config.label} Stockfish is thinking...`);
+  updateBoardControls();
 
   configureStockfishDifficulty();
   sendStockfish('ucinewgame');
@@ -752,6 +768,7 @@ function makeAIMove() {
 
 function applyStockfishMove(uciMove) {
   if (!uciMove || uciMove === '(none)') return;
+  if (aiReviewIndex !== null) resetOnlineBoardView();
   const parsed = parseUCIMove(uciMove);
   if (!parsed) {
     console.warn('Invalid Stockfish move:', uciMove);
@@ -1631,6 +1648,10 @@ function undoMove() {
     stepOnlineBoardReviewBack();
     return;
   }
+  if (gameMode === 'ai') {
+    stepAIBoardReviewBack();
+    return;
+  }
 
   if (stateHistory.length === 0) return;
   const prev = stateHistory.pop();
@@ -1718,6 +1739,7 @@ function applyBoardSnapshotForDisplay(snapshot) {
 
 function rememberAIReviewSnapshot() {
   if (gameMode !== 'ai') return;
+  aiLiveSnapshot = createBoardSnapshot();
   aiReviewSnapshots[moveHistory.length] = createBoardSnapshot();
   aiReviewSnapshots = aiReviewSnapshots.slice(0, moveHistory.length + 1);
 }
@@ -1750,7 +1772,35 @@ function stepOnlineBoardReviewBack() {
   updateOnlineReviewControls();
 }
 
+function stepAIBoardReviewBack() {
+  if (gameMode !== 'ai' || aiThinking || aiReviewSnapshots.length <= 1) return;
+  if (aiReviewIndex === null) {
+    aiLiveSnapshot = createBoardSnapshot();
+    aiReviewIndex = Math.max(0, moveHistory.length - 1);
+  } else {
+    aiReviewIndex = Math.max(0, aiReviewIndex - 1);
+  }
+
+  const snapshot = aiReviewSnapshots[aiReviewIndex];
+  if (!snapshot) {
+    resetOnlineBoardView();
+    return;
+  }
+  stopTimers();
+  applyBoardSnapshotForDisplay(snapshot);
+  updateOnlineReviewControls();
+}
+
 function resetOnlineBoardView() {
+  if (gameMode === 'ai') {
+    if (aiReviewIndex === null) return;
+    aiReviewIndex = null;
+    if (aiLiveSnapshot) applyBoardSnapshotForDisplay(aiLiveSnapshot);
+    if (!gameOver && timerLimitSecs > 0) startTimers();
+    updateOnlineReviewControls();
+    return;
+  }
+
   if (onlineReviewIndex === null && gameMode !== 'friend') return;
   onlineReviewIndex = null;
   if (onlineLiveSnapshot) applyBoardSnapshotForDisplay(onlineLiveSnapshot);
@@ -1767,7 +1817,7 @@ function exitOnlineBoardReviewForRemoteUpdate() {
 
 function updateOnlineReviewControls() {
   updateBoardControls();
-  document.body?.classList.toggle('online-reviewing-board', onlineReviewIndex !== null);
+  document.body?.classList.toggle('online-reviewing-board', onlineReviewIndex !== null || aiReviewIndex !== null);
 }
 
 function rowColToAlgebraic(row, col) {
