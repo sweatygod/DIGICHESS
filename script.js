@@ -5,7 +5,7 @@
 ═══════════════════════════════════════════════════════════ */
 
 /* ── GAME MODE ── (change to 'ai' for future Stockfish support) */
-let gameMode = "pvp"; // "pvp" | "ai" | "friend"
+let gameMode = "pvp"; // "pvp" | "ai" | "friend" | "practice"
 
 /* ── FIREBASE CONFIG (will initialize after SDK loads) ── */
 let db = null;
@@ -202,6 +202,117 @@ let ownerStockfishDifficulty = 'medium';
 let ownerStockfishTimer = null;
 let ownerStockfishToken = 0;
 let ownerStockfishBusy = false;
+let practiceType = null;
+let currentPracticeChallenge = null;
+let practiceChallengeIndex = 0;
+let practiceSolutionIndex = 0;
+let practiceHintLevel = 0;
+let practiceFeedbackState = 'neutral';
+let practiceApplyingAutoMove = false;
+let practiceMoveStartSnapshot = null;
+let pendingMoveUci = null;
+let practiceHintMove = null;
+
+const PRACTICE_LIBRARY = {
+  dailyPuzzle: [
+    {
+      id: 'daily-001',
+      title: 'Daily Puzzle',
+      fen: '4r2k/8/8/8/8/8/4Q3/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'White to move and win material.',
+      solution: ['e2e8'],
+      theme: 'Tactic',
+      difficulty: 'Beginner',
+      explanation: 'The queen moves to e8 and wins the loose rook in this starter puzzle.'
+    }
+  ],
+  tactics: [
+    {
+      id: 'fork-001',
+      title: 'Knight Fork',
+      fen: '4k3/8/8/8/3N4/8/8/R3K3 w Q - 0 1',
+      sideToMove: 'w',
+      objective: 'Find the knight fork.',
+      solution: ['d4f5'],
+      theme: 'Fork',
+      difficulty: 'Beginner',
+      explanation: 'The knight jump creates a fork pattern and attacks important squares at once.'
+    },
+    {
+      id: 'pin-001',
+      title: 'Queen Pin',
+      fen: '4r2k/8/8/8/8/8/4Q3/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Use the queen to apply pressure along the file.',
+      solution: ['e2e8'],
+      theme: 'Pin',
+      difficulty: 'Beginner',
+      explanation: 'The queen uses the open file to win the loose rook.'
+    }
+  ],
+  mate: [
+    {
+      id: 'mate-001',
+      title: 'Mate in 1',
+      fen: '7k/6Q1/6K1/8/8/8/8/8 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Find checkmate in 1.',
+      solution: ['g7f8'],
+      mateIn: 1,
+      difficulty: 'Beginner',
+      theme: 'Checkmate',
+      explanation: 'The queen moves to f8, gives check, and the black king has no safe escape square.'
+    }
+  ],
+  opening: [
+    {
+      id: 'italian-001',
+      title: 'Italian Game',
+      moves: ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4'],
+      objective: 'Play the next correct move in the Italian Game.',
+      difficulty: 'Beginner',
+      theme: 'Opening',
+      explanation: 'The Italian Game develops quickly and attacks the centre.'
+    },
+    {
+      id: 'ruy-001',
+      title: 'Ruy Lopez',
+      moves: ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5'],
+      objective: 'Play the next correct move in the Ruy Lopez.',
+      difficulty: 'Beginner',
+      theme: 'Opening',
+      explanation: 'The Ruy Lopez develops the bishop and pressures the knight defending e5.'
+    },
+    {
+      id: 'queens-gambit-001',
+      title: "Queen's Gambit",
+      moves: ['d2d4', 'd7d5', 'c2c4'],
+      objective: "Play the next correct move in the Queen's Gambit.",
+      difficulty: 'Beginner',
+      theme: 'Opening',
+      explanation: "White challenges Black's centre early with c4."
+    },
+    {
+      id: 'london-001',
+      title: 'London System',
+      moves: ['d2d4', 'd7d5', 'c1f4', 'g8f6', 'e2e3'],
+      objective: 'Play the next correct move in the London System.',
+      difficulty: 'Beginner',
+      theme: 'Opening',
+      explanation: 'The London System builds a solid setup around the dark-square bishop.'
+    },
+    {
+      id: 'sicilian-001',
+      title: 'Sicilian Defence',
+      moves: ['e2e4', 'c7c5', 'g1f3', 'd7d6', 'd2d4'],
+      objective: 'Play the next correct move in the Sicilian Defence line.',
+      difficulty: 'Beginner',
+      theme: 'Opening',
+      explanation: 'The Sicilian fights for the centre from the flank.'
+    }
+  ]
+};
 
 /* ══════════════════════════════════════════
    MULTIPLAYER HELPER FUNCTIONS (defined early)
@@ -269,6 +380,7 @@ function updatePrimaryNavState(active) {
   document.getElementById('btnPVP')?.classList.toggle('active', active === 'pvp');
   document.getElementById('btnFriend')?.classList.toggle('active', active === 'friend');
   document.getElementById('btnAI')?.classList.toggle('active', active === 'ai');
+  document.getElementById('btnPractice')?.classList.toggle('active', active === 'practice');
 }
 
 function startLocalGameFromHome() {
@@ -323,6 +435,7 @@ function initGame() {
   updateStatusBar();
   updateCapturedPieces();
   updateGameInfo();
+  updatePracticePanel();
   updateAISettingsVisibility();
   updateOnlineReviewControls();
   if (gameMode === 'ai') {
@@ -349,6 +462,10 @@ function newGame() {
 }
 
 function handleBoardNewGameClick() {
+  if (gameMode === 'practice') {
+    restartPracticeChallenge();
+    return;
+  }
   if (gameMode === 'friend' && gameOver) {
     closeModal('gameOverModal');
     exitFriendGame();
@@ -361,6 +478,7 @@ function handleBoardNewGameClick() {
 function updateBoardControls() {
   const isOnline = gameMode === 'friend';
   const isAI = gameMode === 'ai';
+  const isPractice = gameMode === 'practice';
   const canViewHistory = isOnline || isAI;
   const showOnlineNewGame = isOnline && gameOver;
   const newGameBtn = document.getElementById('boardNewGameBtn');
@@ -381,7 +499,7 @@ function updateBoardControls() {
       el.style.display = canViewHistory && !gameOver ? 'inline-flex' : 'none';
       el.disabled = isOnline ? onlineReviewIndex === null : aiReviewIndex === null;
     } else if (id === 'drawOfferBtn' || id === 'boardResignBtn') {
-      el.style.display = isAI || showOnlineNewGame ? 'none' : 'inline-flex';
+      el.style.display = isAI || isPractice || showOnlineNewGame ? 'none' : 'inline-flex';
     } else if (id === 'boardUndoBtn') {
       el.style.display = showOnlineNewGame ? 'none' : 'inline-flex';
       el.disabled = isAI && aiThinking;
@@ -443,6 +561,12 @@ function renderBoard() {
       }
       if (reviewHighlight?.best?.to?.row === dispRow && reviewHighlight.best.to.col === dispCol) {
         sq.classList.add('review-best-to');
+      }
+      if (practiceHintMove?.from?.row === dispRow && practiceHintMove.from.col === dispCol) {
+        sq.classList.add('practice-hint-from');
+      }
+      if (practiceHintMove?.to?.row === dispRow && practiceHintMove.to.col === dispCol) {
+        sq.classList.add('practice-hint-to');
       }
 
       // King in check highlight
@@ -513,6 +637,7 @@ function onSquareClick(row, col) {
   // In online games, only allow moves on your own turn
   if (gameMode === 'friend' && myColor !== currentTurn) return;
   if (gameMode === 'ai' && currentTurn === 'b') return;
+  if (gameMode === 'practice' && !canPracticePlayerMove()) return;
 
   const piece = board[row][col];
 
@@ -553,6 +678,10 @@ function onSquareClick(row, col) {
    MOVE EXECUTION
 ══════════════════════════════════════════ */
 function executeMove(fromRow, fromCol, toRow, toCol, special, promotionType = null) {
+  pendingMoveUci = `${rowColToAlgebraic(fromRow, fromCol)}${rowColToAlgebraic(toRow, toCol)}${promotionType ? String(promotionType).toLowerCase() : ''}`;
+  if (gameMode === 'practice') {
+    practiceMoveStartSnapshot = createBoardSnapshot();
+  }
   // Save state for undo
   stateHistory.push({
     board: board.map(r => [...r]),
@@ -656,11 +785,11 @@ function finishMove(notation) {
   if (!hasMoves) {
     if (inCheck) {
       suffix = '#';
-      triggerGameOver('checkmate', notation + suffix);
+      if (gameMode !== 'practice') triggerGameOver('checkmate', notation + suffix);
       moveHistory.push(notation + suffix);
     } else {
       suffix = '';
-      triggerGameOver('stalemate', notation);
+      if (gameMode !== 'practice') triggerGameOver('stalemate', notation);
       moveHistory.push(notation);
     }
   } else {
@@ -674,6 +803,12 @@ function finishMove(notation) {
   updateCapturedPieces();
   updateGameInfo();
   updateTimerActiveState();
+
+  if (gameMode === 'practice') {
+    handlePracticeMoveComplete(pendingMoveUci);
+    pendingMoveUci = null;
+    return;
+  }
 
   if (gameMode === 'ai') {
     rememberAIReviewSnapshot();
@@ -1127,6 +1262,7 @@ function showPromotionModal(color, toRow, toCol, fromRow, fromCol, oldCaptured) 
       modal.style.display = 'none';
       playSound('promote');
       const notation = buildNotation(`${color}P`, fromRow, fromCol, toRow, toCol, oldCaptured, null, type);
+      pendingMoveUci = `${rowColToAlgebraic(fromRow, fromCol)}${rowColToAlgebraic(toRow, toCol)}${type.toLowerCase()}`;
       halfMoveClock++;
       finishMove(notation);
     };
@@ -1918,6 +2054,300 @@ function updateOnlineReviewControls() {
   document.body?.classList.toggle('online-reviewing-board', onlineReviewIndex !== null || aiReviewIndex !== null);
 }
 
+function openPracticeModal() {
+  if (gameMode === 'practice') updatePrimaryNavState('practice');
+  const modal = document.getElementById('practiceModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function practiceLabel(type = practiceType) {
+  return {
+    dailyPuzzle: 'Daily Puzzle',
+    tactics: 'Tactical Trainer',
+    mate: 'Mate in X',
+    opening: 'Opening Trainer'
+  }[type] || 'Practice';
+}
+
+function startPractice(type) {
+  if (gameMode === 'friend') exitFriendGame();
+  closeModal('practiceModal');
+  stopTimers();
+  gameMode = 'practice';
+  practiceType = type;
+  practiceChallengeIndex = 0;
+  timerLimitSecs = 0;
+  timerWhiteSecs = 0;
+  timerBlackSecs = 0;
+  isFlipped = false;
+  showGamePage();
+  updatePrimaryNavState('practice');
+  loadPracticeChallenge(selectPracticeChallenge(type));
+  updateTimerControls();
+  updateTimerDisplays();
+}
+
+function selectPracticeChallenge(type) {
+  const list = PRACTICE_LIBRARY[type] || [];
+  if (type === 'tactics') return list[Math.floor(Math.random() * list.length)] || null;
+  if (type === 'mate') return list.find(ch => Number(ch.mateIn || 1) === getSelectedMateDepth()) || list[0] || null;
+  return list[practiceChallengeIndex % Math.max(1, list.length)] || null;
+}
+
+function getSelectedMateDepth() {
+  return Number(document.getElementById('practiceMateSelect')?.value) || 1;
+}
+
+function changePracticeMateDepth() {
+  if (gameMode !== 'practice' || practiceType !== 'mate') return;
+  loadPracticeChallenge(selectPracticeChallenge('mate'));
+}
+
+function populatePracticeOpeningSelect() {
+  const select = document.getElementById('practiceOpeningSelect');
+  if (!select) return;
+  select.innerHTML = '';
+  (PRACTICE_LIBRARY.opening || []).forEach((opening, index) => {
+    const opt = document.createElement('option');
+    opt.value = String(index);
+    opt.textContent = opening.title;
+    select.appendChild(opt);
+  });
+  select.value = String(practiceChallengeIndex);
+}
+
+function changePracticeOpening() {
+  if (gameMode !== 'practice' || practiceType !== 'opening') return;
+  practiceChallengeIndex = Number(document.getElementById('practiceOpeningSelect')?.value) || 0;
+  loadPracticeChallenge(selectPracticeChallenge('opening'));
+}
+
+function nextPracticeChallenge() {
+  if (gameMode !== 'practice' || !practiceType) return;
+  const list = PRACTICE_LIBRARY[practiceType] || [];
+  practiceChallengeIndex = (practiceChallengeIndex + 1) % Math.max(1, list.length);
+  loadPracticeChallenge(selectPracticeChallenge(practiceType));
+}
+
+function restartPracticeChallenge() {
+  if (currentPracticeChallenge) loadPracticeChallenge(currentPracticeChallenge);
+}
+
+function loadPracticeChallenge(challenge) {
+  if (!challenge) return;
+  currentPracticeChallenge = challenge;
+  practiceSolutionIndex = 0;
+  practiceHintLevel = 0;
+  practiceFeedbackState = 'neutral';
+  practiceApplyingAutoMove = false;
+  practiceMoveStartSnapshot = null;
+  practiceHintMove = null;
+  selectedSq = null;
+  legalMoves = [];
+  gameOver = false;
+  stateHistory = [];
+  capturedByWhite = [];
+  capturedByBlack = [];
+  moveHistory = [];
+  lastMove = null;
+  enPassantSq = null;
+  castlingRights = { wK: true, wQ: true, bK: true, bQ: true };
+
+  if (practiceType === 'opening') {
+    board = INITIAL_BOARD.map(r => [...r]);
+    currentTurn = 'w';
+  } else {
+    loadFenPosition(challenge.fen);
+  }
+
+  setPracticeFeedback(practiceType === 'opening' ? 'Play the highlighted line one move at a time.' : 'Make the best move on the board.', 'neutral');
+  renderBoard();
+  renderMoveHistory();
+  updateStatusBar();
+  updateCapturedPieces();
+  updateGameInfo();
+  updatePracticePanel();
+  updateBoardControls();
+  maybeAutoPlayPracticeOpeningMove();
+}
+
+function loadFenPosition(fen) {
+  setBoardFromFen(fen);
+}
+
+function setBoardFromFen(fen) {
+  const parts = String(fen || '').trim().split(/\s+/);
+  const rows = (parts[0] || '').split('/');
+  const nextBoard = Array.from({ length: 8 }, () => Array(8).fill(null));
+  const pieceMap = { k: 'K', q: 'Q', r: 'R', b: 'B', n: 'N', p: 'P' };
+  rows.forEach((row, r) => {
+    let c = 0;
+    for (const ch of row) {
+      if (/\d/.test(ch)) c += Number(ch);
+      else if (c < 8) {
+        const color = ch === ch.toUpperCase() ? 'w' : 'b';
+        nextBoard[r][c++] = color + pieceMap[ch.toLowerCase()];
+      }
+    }
+  });
+  board = nextBoard;
+  currentTurn = parts[1] === 'b' ? 'b' : 'w';
+  const castle = parts[2] || '-';
+  castlingRights = {
+    wK: castle.includes('K'),
+    wQ: castle.includes('Q'),
+    bK: castle.includes('k'),
+    bQ: castle.includes('q')
+  };
+  enPassantSq = parts[3] && parts[3] !== '-' ? algebraicToRowCol(parts[3]) : null;
+  halfMoveClock = Number(parts[4]) || 0;
+  gameOver = false;
+}
+
+function boardToFen() {
+  return generateFEN();
+}
+
+function canPracticePlayerMove() {
+  if (gameMode !== 'practice' || !currentPracticeChallenge) return false;
+  if (practiceType === 'opening') return currentTurn === getPracticePlayerColor();
+  return currentTurn === (currentPracticeChallenge.sideToMove || 'w');
+}
+
+function getPracticePlayerColor() {
+  return 'w';
+}
+
+function expectedPracticeMove() {
+  if (!currentPracticeChallenge) return null;
+  const line = currentPracticeChallenge.solution || currentPracticeChallenge.moves || [];
+  return line[practiceSolutionIndex] || null;
+}
+
+function handlePracticeMoveComplete(actualMove) {
+  if (!actualMove || !currentPracticeChallenge) return;
+  if (practiceApplyingAutoMove) {
+    practiceSolutionIndex++;
+    practiceFeedbackState = 'neutral';
+    setPracticeFeedback('Your turn. Find the next opening move.', 'neutral');
+    updatePracticePanel();
+    return;
+  }
+
+  checkPracticeMove(actualMove);
+}
+
+function checkPracticeMove(actualMove) {
+  const expected = expectedPracticeMove();
+  if (actualMove === expected) {
+    practiceSolutionIndex++;
+    practiceHintLevel = 0;
+    practiceHintMove = null;
+    practiceFeedbackState = 'correct';
+    setPracticeFeedback('Correct!', 'correct');
+    if (practiceType === 'dailyPuzzle') {
+      localStorage.setItem(`digichessDailyPractice_${new Date().toISOString().slice(0, 10)}`, currentPracticeChallenge.id);
+    }
+    updatePracticePanel(true);
+    if (practiceType === 'opening') {
+      maybeAutoPlayPracticeOpeningMove();
+    }
+    return true;
+  }
+
+  if (practiceMoveStartSnapshot) applyBoardSnapshotForDisplay(practiceMoveStartSnapshot);
+  practiceHintMove = null;
+  practiceFeedbackState = 'incorrect';
+  setPracticeFeedback('Try again', 'incorrect');
+  updatePracticePanel();
+  return false;
+}
+
+function setPracticeFeedback(message, state = 'neutral') {
+  const feedback = document.getElementById('practiceFeedback');
+  if (!feedback) return;
+  feedback.textContent = message;
+  feedback.className = `practice-feedback ${state}`;
+}
+
+function maybeAutoPlayPracticeOpeningMove() {
+  if (gameMode !== 'practice' || practiceType !== 'opening') return;
+  const expected = expectedPracticeMove();
+  if (!expected) {
+    practiceFeedbackState = 'correct';
+    setPracticeFeedback('Correct! Opening line complete.', 'correct');
+    updatePracticePanel(true);
+    return;
+  }
+  const parsed = parseUCIMove(expected);
+  if (!parsed || currentTurn === getPracticePlayerColor()) {
+    updatePracticePanel();
+    return;
+  }
+  setTimeout(() => {
+    if (gameMode !== 'practice' || practiceType !== 'opening' || expectedPracticeMove() !== expected) return;
+    practiceApplyingAutoMove = true;
+    applyPracticeUciMove(expected);
+    practiceApplyingAutoMove = false;
+  }, 450);
+}
+
+function applyPracticeUciMove(uciMove) {
+  const parsed = parseUCIMove(uciMove);
+  if (!parsed) return false;
+  const legal = getLegalMoves(parsed.from.row, parsed.from.col)
+    .find(move => move.row === parsed.to.row && move.col === parsed.to.col);
+  if (!legal) return false;
+  executeMove(parsed.from.row, parsed.from.col, parsed.to.row, parsed.to.col, legal.special, parsed.promotion);
+  return true;
+}
+
+function showPracticeHint() {
+  const expected = expectedPracticeMove();
+  const parsed = expected ? parseUCIMove(expected) : null;
+  if (!parsed) return;
+  practiceHintLevel = Math.min(2, practiceHintLevel + 1);
+  if (practiceHintLevel === 1) {
+    practiceHintMove = { from: parsed.from, to: null };
+    setPracticeFeedback(`Hint: move the piece on ${expected.slice(0, 2)}.`, 'hint');
+  } else {
+    practiceHintMove = { from: parsed.from, to: parsed.to };
+    setPracticeFeedback(`Hint: move it to ${expected.slice(2, 4)}.`, 'hint');
+  }
+  renderBoard();
+}
+
+function updatePracticePanel(showExplanation = false) {
+  const panel = document.getElementById('practicePanel');
+  if (panel) panel.style.display = gameMode === 'practice' ? 'block' : 'none';
+  if (gameMode !== 'practice' || !currentPracticeChallenge) return;
+  setText('practiceTypeLabel', practiceLabel());
+  setText('practiceTitle', currentPracticeChallenge.title || practiceLabel());
+  setText('practiceObjective', currentPracticeChallenge.objective || 'Find the best move.');
+  setText('practiceMeta', [currentPracticeChallenge.difficulty, currentPracticeChallenge.theme].filter(Boolean).join(' • '));
+  const openingSelect = document.getElementById('practiceOpeningSelect');
+  const mateSelect = document.getElementById('practiceMateSelect');
+  if (openingSelect) {
+    openingSelect.style.display = practiceType === 'opening' ? 'block' : 'none';
+    if (practiceType === 'opening') populatePracticeOpeningSelect();
+  }
+  if (mateSelect) {
+    mateSelect.style.display = practiceType === 'mate' ? 'block' : 'none';
+    if (practiceType === 'mate') mateSelect.value = String(currentPracticeChallenge.mateIn || 1);
+  }
+  const explanation = document.getElementById('practiceExplanation');
+  if (explanation) {
+    explanation.textContent = currentPracticeChallenge.explanation || '';
+    explanation.style.display = showExplanation ? 'block' : 'none';
+  }
+  const hintBtn = document.getElementById('practiceHintBtn');
+  const nextBtn = document.getElementById('practiceNextBtn');
+  const restartBtn = document.getElementById('practiceRestartBtn');
+  if (hintBtn) hintBtn.style.display = expectedPracticeMove() ? 'inline-flex' : 'none';
+  if (nextBtn) nextBtn.style.display = practiceType === 'opening' ? 'none' : 'inline-flex';
+  if (restartBtn) restartBtn.style.display = 'inline-flex';
+}
+
 function rowColToAlgebraic(row, col) {
   return 'abcdefgh'[col] + (8 - row);
 }
@@ -2507,7 +2937,7 @@ function updateCapturedPieces() {
 }
 
 function updateGameInfo() {
-  document.getElementById('infoMode').textContent   = gameMode === 'ai' ? 'vs AI' : gameMode === 'friend' ? 'Online' : 'PvP';
+  document.getElementById('infoMode').textContent   = gameMode === 'ai' ? 'vs AI' : gameMode === 'friend' ? 'Online' : gameMode === 'practice' ? 'Practice' : 'PvP';
   document.getElementById('infoMoves').textContent  = moveHistory.length;
   const rankedRow = document.getElementById('infoRankedRow');
   const rankedStatus = document.getElementById('infoRankedStatus');
@@ -2770,7 +3200,7 @@ function startTimers() {
 }
 
 function canEditTimerSettings() {
-  return gameMode !== 'friend';
+  return gameMode !== 'friend' && gameMode !== 'practice';
 }
 
 function stopTimers() {
@@ -2848,6 +3278,11 @@ function setGameMode(mode) {
   
   if (gameMode === 'friend') {
     exitFriendGame();
+  }
+  if (gameMode === 'practice') {
+    practiceType = null;
+    currentPracticeChallenge = null;
+    updatePracticePanel();
   }
   
   gameMode = mode;

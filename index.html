@@ -45,6 +45,10 @@
         <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M13 7H7v6h6V7z"/><path fill-rule="evenodd" d="M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z" clip-rule="evenodd"/></svg>
         Play AI
       </button>
+      <button class="nav-btn" id="btnPractice" onclick="openPracticeModal()">
+        <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M10 2a1 1 0 01.894.553l1.44 2.88 3.18.462a1 1 0 01.554 1.706l-2.3 2.242.543 3.166a1 1 0 01-1.451 1.054L10 12.558l-2.844 1.505a1 1 0 01-1.451-1.054l.543-3.166-2.3-2.242a1 1 0 01.554-1.706l3.18-.462 1.44-2.88A1 1 0 0110 2z"/></svg>
+        Practice
+      </button>
     </nav>
 
     <!-- Account indicator (shown when logged in) -->
@@ -405,6 +409,30 @@
         </div>
       </div>
 
+      <div class="card practice-card" id="practicePanel" style="display:none;">
+        <h3 class="card-title">
+          Practice
+          <span class="review-progress" id="practiceTypeLabel">Trainer</span>
+        </h3>
+        <div class="practice-meta" id="practiceMeta"></div>
+        <select class="timer-select practice-select" id="practiceOpeningSelect" onchange="changePracticeOpening()" style="display:none;"></select>
+        <select class="timer-select practice-select" id="practiceMateSelect" onchange="changePracticeMateDepth()" style="display:none;">
+          <option value="1">Mate in 1</option>
+          <option value="2">Mate in 2</option>
+          <option value="3">Mate in 3</option>
+        </select>
+        <h4 class="practice-title" id="practiceTitle">Choose a challenge</h4>
+        <p class="practice-objective" id="practiceObjective"></p>
+        <div class="practice-feedback" id="practiceFeedback">Make the best move on the board.</div>
+        <p class="practice-explanation" id="practiceExplanation" style="display:none;"></p>
+        <div class="practice-actions">
+          <button class="btn btn-sm btn-ghost" id="practiceHintBtn" onclick="showPracticeHint()">Hint</button>
+          <button class="btn btn-sm btn-primary" id="practiceNextBtn" onclick="nextPracticeChallenge()">Next</button>
+          <button class="btn btn-sm btn-ghost" id="practiceRestartBtn" onclick="restartPracticeChallenge()">Restart</button>
+          <button class="btn btn-sm btn-ghost practice-wide-btn" onclick="openPracticeModal()">Back to Practice</button>
+        </div>
+      </div>
+
       <div class="card">
         <h3 class="card-title">Game Info</h3>
         <div class="game-info-rows">
@@ -637,6 +665,41 @@
       </div>
       </div><!-- /#onlineCommunityWrapper -->
 
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="practiceModal" style="display:none;">
+    <div class="modal practice-modal">
+      <div class="online-modal-header">
+        <h2 class="modal-title" style="margin-bottom:0;">Practice Mode</h2>
+        <button class="modal-close-btn" onclick="closeModal('practiceModal')" title="Close">✕</button>
+      </div>
+      <div class="practice-option-grid">
+        <button class="practice-option-card" onclick="startPractice('dailyPuzzle')">
+          <span class="practice-option-icon">★</span>
+          <strong>Daily Puzzle Challenge</strong>
+          <span>Solve today’s featured puzzle.</span>
+          <em>Start</em>
+        </button>
+        <button class="practice-option-card" onclick="startPractice('tactics')">
+          <span class="practice-option-icon">♞</span>
+          <strong>Tactical Trainer</strong>
+          <span>Practice forks, pins, skewers and tactics.</span>
+          <em>Start</em>
+        </button>
+        <button class="practice-option-card" onclick="startPractice('mate')">
+          <span class="practice-option-icon">♚</span>
+          <strong>Mate in X Trainer</strong>
+          <span>Find checkmates in 1, 2 or 3 moves.</span>
+          <em>Start</em>
+        </button>
+        <button class="practice-option-card" onclick="startPractice('opening')">
+          <span class="practice-option-icon">♜</span>
+          <strong>Opening Trainer</strong>
+          <span>Learn common chess openings move by move.</span>
+          <em>Start</em>
+        </button>
+      </div>
     </div>
   </div>
 
