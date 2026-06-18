@@ -188,7 +188,7 @@ let aiReviewSnapshots = [];
 let isReviewMode = false;
 let reviewMoves = [];
 let currentReviewIndex = 0;
-let showingBestMove = false;
+let reviewBoardView = 'before';
 let reviewFinalSnapshot = null;
 let reviewHighlight = null;
 let reviewEngineRequestId = 0;
@@ -1421,6 +1421,7 @@ function showGameOverModal(title, sub, icon, rematchPending = false, modalKey = 
   activeGameOverModalKey = modalKey;
   resetGameOverModalLayout();
   setTimeout(() => {
+    if (isReviewMode) return;
     document.getElementById('gameOverIcon').textContent  = icon;
     document.getElementById('gameOverTitle').textContent = title;
     document.getElementById('gameOverSub').textContent   = sub;
@@ -1464,9 +1465,17 @@ function showGameOverModal(title, sub, icon, rematchPending = false, modalKey = 
   }, 300);
 }
 
+function markGameOverModalHandled() {
+  if (activeGameOverModalKey) {
+    dismissedGameOverKeys.add(activeGameOverModalKey);
+  } else if (gameMode === 'friend' && gameOver) {
+    dismissedUnkeyedOnlineGameOver = true;
+  }
+  activeGameOverModalKey = null;
+}
+
 function dismissGameOverModal() {
-  if (activeGameOverModalKey) dismissedGameOverKeys.add(activeGameOverModalKey);
-  else if (gameMode === 'friend' && gameOver) dismissedUnkeyedOnlineGameOver = true;
+  markGameOverModalHandled();
   closeModal('gameOverModal');
 }
 
@@ -1916,7 +1925,7 @@ function applyReviewBoardSnapshot(snapshot) {
 function goToReviewMove(index) {
   if (!isReviewMode || reviewMoves.length === 0) return;
   currentReviewIndex = Math.max(0, Math.min(index, reviewMoves.length - 1));
-  showingBestMove = false;
+  reviewBoardView = 'before';
   const move = reviewMoves[currentReviewIndex];
   reviewHighlight = {
     actual: move.actual,
@@ -1935,17 +1944,44 @@ function showNextReviewMove() {
   goToReviewMove(currentReviewIndex + 1);
 }
 
+function applyCurrentReviewView() {
+  const move = reviewMoves[currentReviewIndex];
+  if (!move) return;
+  if (reviewBoardView === 'best' && move.bestUci) {
+    applyReviewBoardSnapshot(applyUciToSnapshot(move.before, move.bestUci));
+  } else if (reviewBoardView === 'actual') {
+    applyReviewBoardSnapshot(move.after);
+  } else {
+    reviewBoardView = 'before';
+    applyReviewBoardSnapshot(move.before);
+  }
+}
+
+function showPlayedMoveForReview() {
+  if (!isReviewMode) return;
+  reviewBoardView = reviewBoardView === 'actual' ? 'before' : 'actual';
+  reviewHighlight = {
+    actual: reviewMoves[currentReviewIndex]?.actual,
+    best: reviewMoves[currentReviewIndex]?.best
+  };
+  applyCurrentReviewView();
+  updateReviewPanel();
+}
+
 function showBestMoveForReview() {
   if (!isReviewMode) return;
   const move = reviewMoves[currentReviewIndex];
   if (!move) return;
-  showingBestMove = !showingBestMove;
-  const snapshot = showingBestMove && move.bestUci ? applyUciToSnapshot(move.before, move.bestUci) : move.after;
+  if (!move.bestUci) {
+    updateReviewPanel();
+    return;
+  }
+  reviewBoardView = reviewBoardView === 'best' ? 'before' : 'best';
   reviewHighlight = {
     actual: move.actual,
     best: move.best
   };
-  applyReviewBoardSnapshot(snapshot);
+  applyCurrentReviewView();
   updateReviewPanel();
 }
 
@@ -1954,8 +1990,14 @@ function updateReviewPanel() {
   if (card) card.style.display = isReviewMode ? 'block' : 'none';
   const move = reviewMoves[currentReviewIndex];
   setText('reviewProgress', move ? `Move ${currentReviewIndex + 1} of ${reviewMoves.length}` : 'Move 0 of 0');
-  setText('reviewMoveLine', move ? `${move.side} played: ${move.notation}` : 'No review move selected.');
-  setText('reviewBestLine', move ? (move.analysisError ? 'Engine analysis unavailable.' : move.bestUci ? `Better move: ${move.bestUci}` : 'Better move: analysing...') : '');
+  const stateText = reviewBoardView === 'actual'
+    ? 'Showing played move'
+    : reviewBoardView === 'best'
+      ? 'Showing engine move'
+      : 'Position before move';
+  setText('reviewStatePill', stateText);
+  setText('reviewMoveLine', move ? `${move.side} played: ${move.notation}` : 'Played move: -');
+  setText('reviewBestLine', move ? (move.analysisError ? 'Engine suggestion: unavailable' : move.bestUci ? `Engine suggestion: ${move.bestUci}` : 'Engine suggestion: analysing...') : '');
   const badge = document.getElementById('reviewRatingBadge');
   if (badge) {
     badge.textContent = move?.rating || 'Review';
@@ -1965,11 +2007,16 @@ function updateReviewPanel() {
   const prev = document.getElementById('reviewPrevBtn');
   const next = document.getElementById('reviewNextBtn');
   const best = document.getElementById('reviewBestBtn');
+  const actual = document.getElementById('reviewActualBtn');
   if (prev) prev.disabled = currentReviewIndex <= 0;
   if (next) next.disabled = currentReviewIndex >= reviewMoves.length - 1;
+  if (actual) {
+    actual.disabled = !move;
+    actual.textContent = reviewBoardView === 'actual' ? 'Back to Position' : 'Show Played Move';
+  }
   if (best) {
     best.disabled = !move?.bestUci;
-    best.textContent = showingBestMove ? 'Show Actual Move' : 'Show Best Move';
+    best.textContent = reviewBoardView === 'best' ? 'Back to Position' : 'Show Best Move';
   }
 }
 
@@ -2018,6 +2065,7 @@ function analyseReviewMove(index) {
 
 function startGameReview() {
   if (!canReviewCurrentGame()) return;
+  markGameOverModalHandled();
   closeModal('gameOverModal');
   stopTimers();
   onlineReviewIndex = null;
@@ -2036,7 +2084,7 @@ function exitGameReview(restoreFinal = true) {
     applyBoardSnapshotForDisplay(reviewFinalSnapshot);
   }
   isReviewMode = false;
-  showingBestMove = false;
+  reviewBoardView = 'before';
   reviewMoves = [];
   currentReviewIndex = 0;
   reviewHighlight = null;
@@ -5382,6 +5430,13 @@ function setupGameListener(code, closeOnStart) {
     recordOnlineGameStatsIfNeeded(gameData);
     handleDrawOfferSnapshot(gameData);
 
+    if (isReviewMode && gameData.gameOver && gameData.gameOverTitle) {
+      const gameOverKey = onlineGameOverKey(gameData);
+      if (gameOverKey) dismissedGameOverKeys.add(gameOverKey);
+      stopTimers();
+      return;
+    }
+
     // ── Waiting for second player ──
     if (!gameStarted) {
       if (!closeOnStart && playerCount < 2) return;
@@ -5470,6 +5525,11 @@ function setupGameListener(code, closeOnStart) {
       const summaryVisible = document.getElementById('gameResultSummary')?.style.display !== 'none';
       const summaryHasPendingRating = document.getElementById('gameResultSummary')?.textContent?.includes('Waiting for update');
       const gameOverKey = onlineGameOverKey(gameData);
+      if (isReviewMode) {
+        if (gameOverKey) dismissedGameOverKeys.add(gameOverKey);
+        stopTimers();
+        return;
+      }
       if (dismissedUnkeyedOnlineGameOver && gameOverKey) {
         dismissedGameOverKeys.add(gameOverKey);
         dismissedUnkeyedOnlineGameOver = false;

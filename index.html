@@ -385,12 +385,20 @@
           Game Review
           <span class="review-progress" id="reviewProgress">Move 0 of 0</span>
         </h3>
-        <div class="review-move-line" id="reviewMoveLine">Select a move to review.</div>
-        <div class="review-best-line" id="reviewBestLine">Better move: analysing...</div>
+        <div class="review-state-pill" id="reviewStatePill">Position before move</div>
+        <div class="review-line">
+          <span class="review-dot review-dot-actual"></span>
+          <span id="reviewMoveLine">Played move: -</span>
+        </div>
+        <div class="review-line">
+          <span class="review-dot review-dot-best"></span>
+          <span id="reviewBestLine">Engine suggestion: analysing...</span>
+        </div>
         <div class="review-rating-badge" id="reviewRatingBadge">Review</div>
         <p class="review-tip" id="reviewCoachTip">Use Previous and Next to step through the game.</p>
         <div class="review-actions">
           <button class="btn btn-sm btn-ghost" id="reviewPrevBtn" onclick="showPreviousReviewMove()">Previous</button>
+          <button class="btn btn-sm btn-primary" id="reviewActualBtn" onclick="showPlayedMoveForReview()">Show Played Move</button>
           <button class="btn btn-sm btn-primary" id="reviewBestBtn" onclick="showBestMoveForReview()">Show Best Move</button>
           <button class="btn btn-sm btn-ghost" id="reviewNextBtn" onclick="showNextReviewMove()">Next</button>
           <button class="btn btn-sm btn-ghost" onclick="exitGameReview()">Exit Review</button>

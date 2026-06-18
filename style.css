@@ -971,14 +971,41 @@ button {
   text-transform: none;
   letter-spacing: 0;
 }
-.review-move-line,
-.review-best-line {
+.review-state-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.32);
+  color: #9cc9ff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.review-line {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  align-items: center;
+  gap: 8px;
   font-size: 0.84rem;
   color: var(--text-primary);
   margin-bottom: 8px;
 }
-.review-best-line {
-  color: var(--green-bright);
+.review-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 14px currentColor;
+}
+.review-dot-actual {
+  background: #f59e0b;
+  color: #f59e0b;
+}
+.review-dot-best {
+  background: #4ade80;
+  color: #4ade80;
 }
 .review-rating-badge {
   display: inline-flex;
@@ -1018,6 +1045,9 @@ button {
 }
 .review-actions .btn {
   width: 100%;
+  min-height: 34px;
+  white-space: normal;
+  line-height: 1.2;
 }
 .move-list-header {
   display: grid;
