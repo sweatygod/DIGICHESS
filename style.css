@@ -84,23 +84,27 @@ body.compact-mode {
 .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  text-decoration: none;
-}
-.logo-icon {
-  width: 36px;
-  height: 36px;
-  fill: var(--green);
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   flex-shrink: 0;
 }
-.logo-text {
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: 1.6rem;
-  letter-spacing: 0.04em;
-  color: var(--text-primary);
-  line-height: 1;
+.logo-img {
+  display: block;
+  object-fit: contain;
 }
-.logo-dot { color: var(--green); }
+.logo-img-wide {
+  width: clamp(150px, 17vw, 235px);
+  height: 46px;
+}
+.logo-img-badge {
+  display: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+}
 
 /* Nav */
 .site-nav {
@@ -536,6 +540,21 @@ body.compact-mode {
   align-items: center;
   gap: 16px;
   margin-bottom: 12px;
+}
+
+.home-footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.home-footer-brand img {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(77, 158, 94, 0.28), 0 8px 20px rgba(0,0,0,0.35);
 }
 
 .home-footer strong,
@@ -1772,7 +1791,8 @@ button {
 
 @media (max-width: 520px) {
   .site-header  { padding: 0 14px; }
-  .logo-text    { font-size: 1.3rem; }
+  .logo-img-wide { display: none; }
+  .logo-img-badge { display: block; }
   .site-nav { gap: 6px; overflow-x: auto; max-width: 52vw; padding-bottom: 2px; }
   .nav-btn { padding: 7px 10px; font-size: 0.76rem; }
   .nav-btn span:not(.nav-icon) { display: none; }
