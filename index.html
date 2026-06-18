@@ -276,7 +276,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="timerCard">
         <h3 class="card-title">Timers</h3>
         <div class="timers">
           <div class="timer-block" id="timerBlack">
@@ -415,6 +415,7 @@
           <span class="review-progress" id="practiceTypeLabel">Trainer</span>
         </h3>
         <div class="practice-meta" id="practiceMeta"></div>
+        <div class="practice-progress" id="practiceProgress">Puzzle 1 of 1</div>
         <select class="timer-select practice-select" id="practiceOpeningSelect" onchange="changePracticeOpening()" style="display:none;"></select>
         <select class="timer-select practice-select" id="practiceMateSelect" onchange="changePracticeMateDepth()" style="display:none;">
           <option value="1">Mate in 1</option>
@@ -423,6 +424,7 @@
         </select>
         <h4 class="practice-title" id="practiceTitle">Choose a challenge</h4>
         <p class="practice-objective" id="practiceObjective"></p>
+        <p class="practice-objective" id="practiceLessonNote" style="display:none;"></p>
         <div class="practice-feedback" id="practiceFeedback">Make the best move on the board.</div>
         <p class="practice-explanation" id="practiceExplanation" style="display:none;"></p>
         <div class="practice-actions">
@@ -674,31 +676,59 @@
         <h2 class="modal-title" style="margin-bottom:0;">Practice Mode</h2>
         <button class="modal-close-btn" onclick="closeModal('practiceModal')" title="Close">✕</button>
       </div>
+      <p class="modal-sub practice-hub-sub">Choose a training path and build sharper chess habits move by move.</p>
       <div class="practice-option-grid">
         <button class="practice-option-card" onclick="startPractice('dailyPuzzle')">
           <span class="practice-option-icon">★</span>
           <strong>Daily Puzzle Challenge</strong>
           <span>Solve today’s featured puzzle.</span>
-          <em>Start</em>
+          <small>Beginner • Daily</small>
+          <em>Start Challenge</em>
         </button>
-        <button class="practice-option-card" onclick="startPractice('tactics')">
+        <button class="practice-option-card" onclick="showPracticeTacticsChoices()">
           <span class="practice-option-icon">♞</span>
           <strong>Tactical Trainer</strong>
           <span>Practice forks, pins, skewers and tactics.</span>
-          <em>Start</em>
+          <small>Beginner to Advanced</small>
+          <em>Choose Level</em>
         </button>
-        <button class="practice-option-card" onclick="startPractice('mate')">
+        <button class="practice-option-card" onclick="showPracticeMateChoices()">
           <span class="practice-option-icon">♚</span>
           <strong>Mate in X Trainer</strong>
           <span>Find checkmates in 1, 2 or 3 moves.</span>
-          <em>Start</em>
+          <small>Mate Patterns</small>
+          <em>Choose Depth</em>
         </button>
-        <button class="practice-option-card" onclick="startPractice('opening')">
+        <button class="practice-option-card" onclick="showPracticeOpeningChoices()">
           <span class="practice-option-icon">♜</span>
           <strong>Opening Trainer</strong>
           <span>Learn common chess openings move by move.</span>
-          <em>Start</em>
+          <small>Lesson Mode</small>
+          <em>Choose Opening</em>
         </button>
+      </div>
+      <div class="practice-choice-panel" id="practiceTacticsChooser" style="display:none;">
+        <h3>Tactical Trainer</h3>
+        <p>Choose a difficulty, then solve a tactical position from that set.</p>
+        <div class="practice-choice-row">
+          <button class="btn btn-sm btn-ghost" onclick="startPractice('tactics', 'Beginner')">Beginner</button>
+          <button class="btn btn-sm btn-ghost" onclick="startPractice('tactics', 'Intermediate')">Intermediate</button>
+          <button class="btn btn-sm btn-ghost" onclick="startPractice('tactics', 'Advanced')">Advanced</button>
+        </div>
+      </div>
+      <div class="practice-choice-panel" id="practiceMateChooser" style="display:none;">
+        <h3>Mate in X Trainer</h3>
+        <p>Pick a mate depth. Mate in 2 and 3 use short move sequences.</p>
+        <div class="practice-choice-row">
+          <button class="btn btn-sm btn-ghost" onclick="startMatePractice(1)">Mate in 1</button>
+          <button class="btn btn-sm btn-ghost" onclick="startMatePractice(2)">Mate in 2</button>
+          <button class="btn btn-sm btn-ghost" onclick="startMatePractice(3)">Mate in 3</button>
+        </div>
+      </div>
+      <div class="practice-choice-panel" id="practiceOpeningChooser" style="display:none;">
+        <h3>Opening Lessons</h3>
+        <p>Select an opening to practise the main moves with feedback.</p>
+        <div class="practice-opening-list" id="practiceOpeningChoiceList"></div>
       </div>
     </div>
   </div>

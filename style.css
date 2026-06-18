@@ -832,6 +832,10 @@ body.online-timer-locked .timer-controls {
 .square.practice-hint-to {
   box-shadow: inset 0 0 0 4px rgba(245, 158, 11, 0.95), inset 0 0 24px rgba(245, 158, 11, 0.38);
 }
+.square.practice-correct-from,
+.square.practice-correct-to {
+  box-shadow: inset 0 0 0 4px rgba(74, 222, 128, 0.95), inset 0 0 24px rgba(74, 222, 128, 0.4);
+}
 
 body.hide-last-move .square.last-move-light,
 body.hide-last-move .square.last-move-dark {
@@ -1067,6 +1071,12 @@ button {
   font-weight: 800;
   margin-bottom: 8px;
 }
+.practice-progress {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
 .practice-select {
   width: 100%;
   margin-bottom: 10px;
@@ -1223,16 +1233,16 @@ button {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 .practice-option-card {
   display: grid;
   gap: 8px;
   text-align: left;
-  padding: 16px;
+  padding: 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-card);
+  background: linear-gradient(145deg, rgba(22, 27, 34, 0.98), rgba(13, 19, 17, 0.98));
   color: var(--text-primary);
   cursor: pointer;
   transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
@@ -1244,6 +1254,12 @@ button {
 }
 .practice-option-card strong {
   font-size: 0.95rem;
+}
+.practice-option-card small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 .practice-option-card span:not(.practice-option-icon) {
   color: var(--text-secondary);
@@ -1268,6 +1284,64 @@ button {
   border: 1px solid rgba(77, 158, 94, 0.35);
   color: var(--green-bright);
   font-size: 1.05rem;
+}
+.practice-hub-sub {
+  margin: 10px 0 0;
+  text-align: left;
+}
+.practice-choice-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(77, 158, 94, 0.24);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+.practice-choice-panel h3 {
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+.practice-choice-panel p {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+.practice-choice-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.practice-opening-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.practice-opening-choice {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.practice-opening-choice:hover {
+  border-color: var(--green);
+  background: var(--bg-card-hover);
+}
+.practice-opening-choice span,
+.practice-opening-choice small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.practice-opening-choice em {
+  color: var(--green-bright);
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 
 .result-summary-modal {
@@ -2985,5 +3059,7 @@ button {
   .community-grid { grid-template-columns: repeat(3, 1fr); }
   .online-modal { padding: 18px 16px 24px; }
   .practice-option-grid { grid-template-columns: 1fr; }
+  .practice-choice-row,
+  .practice-opening-list { grid-template-columns: 1fr; }
   .practice-modal { padding: 18px 16px 24px; }
 }

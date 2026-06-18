@@ -212,12 +212,16 @@ let practiceApplyingAutoMove = false;
 let practiceMoveStartSnapshot = null;
 let pendingMoveUci = null;
 let practiceHintMove = null;
+let practiceCorrectMove = null;
+let practiceAttempts = 0;
+let practiceTacticDifficulty = 'Beginner';
+let selectedMateDepth = 1;
 
 const PRACTICE_LIBRARY = {
   dailyPuzzle: [
     {
       id: 'daily-001',
-      title: 'Daily Puzzle',
+      title: 'Today’s Puzzle',
       fen: '4r2k/8/8/8/8/8/4Q3/4K3 w - - 0 1',
       sideToMove: 'w',
       objective: 'White to move and win material.',
@@ -225,6 +229,17 @@ const PRACTICE_LIBRARY = {
       theme: 'Tactic',
       difficulty: 'Beginner',
       explanation: 'The queen moves to e8 and wins the loose rook in this starter puzzle.'
+    },
+    {
+      id: 'daily-002',
+      title: 'Today’s Puzzle',
+      fen: '7k/8/8/8/8/8/3Q4/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'White to move and create a decisive attack.',
+      solution: ['d2d8'],
+      theme: 'Back Rank',
+      difficulty: 'Beginner',
+      explanation: 'Correct! That move wins material by using the open back rank.'
     }
   ],
   tactics: [
@@ -249,6 +264,50 @@ const PRACTICE_LIBRARY = {
       theme: 'Pin',
       difficulty: 'Beginner',
       explanation: 'The queen uses the open file to win the loose rook.'
+    },
+    {
+      id: 'skewer-001',
+      title: 'Skewer',
+      fen: '7k/8/8/8/8/8/4R3/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Line up the rook with the king and loose piece.',
+      solution: ['e2e8'],
+      theme: 'Skewer',
+      difficulty: 'Intermediate',
+      explanation: 'Correct! The rook uses the open file to force a skewer pattern.'
+    },
+    {
+      id: 'discovered-001',
+      title: 'Discovered Attack',
+      fen: '4k3/8/8/8/3B4/8/4R3/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Move the bishop and reveal pressure from the rook.',
+      solution: ['d4b6'],
+      theme: 'Discovered Attack',
+      difficulty: 'Intermediate',
+      explanation: 'Correct! Moving the bishop reveals the rook’s line and creates a discovered attack.'
+    },
+    {
+      id: 'back-rank-001',
+      title: 'Back Rank',
+      fen: '6rk/6pp/8/8/8/8/6R1/6K1 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Use the back rank weakness.',
+      solution: ['g2g8'],
+      theme: 'Back Rank',
+      difficulty: 'Advanced',
+      explanation: 'Correct! The rook invades the back rank and wins the pinned rook.'
+    },
+    {
+      id: 'hanging-001',
+      title: 'Hanging Piece',
+      fen: '7k/8/8/7r/8/8/4Q3/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Take the undefended piece.',
+      solution: ['e2h5'],
+      theme: 'Hanging Piece',
+      difficulty: 'Beginner',
+      explanation: 'Correct! The queen captures the hanging rook.'
     }
   ],
   mate: [
@@ -263,6 +322,30 @@ const PRACTICE_LIBRARY = {
       difficulty: 'Beginner',
       theme: 'Checkmate',
       explanation: 'The queen moves to f8, gives check, and the black king has no safe escape square.'
+    },
+    {
+      id: 'mate-002',
+      title: 'Mate in 2',
+      fen: '7k/8/8/8/8/8/4Q3/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Follow the two-move mating pattern.',
+      solution: ['e2e8', 'h8h7', 'e8e7'],
+      mateIn: 2,
+      difficulty: 'Intermediate',
+      theme: 'Checkmate',
+      explanation: 'Correct! The queen keeps the king boxed in and finishes the sequence.'
+    },
+    {
+      id: 'mate-003',
+      title: 'Mate in 3',
+      fen: '7k/8/8/8/8/8/3Q4/4K3 w - - 0 1',
+      sideToMove: 'w',
+      objective: 'Play the three-step mating net.',
+      solution: ['d2d8', 'h8h7', 'd8d7', 'h7h6', 'd7d6'],
+      mateIn: 3,
+      difficulty: 'Advanced',
+      theme: 'Checkmate',
+      explanation: 'Correct! The queen walks the king into a finished mating net.'
     }
   ],
   opening: [
@@ -273,6 +356,8 @@ const PRACTICE_LIBRARY = {
       objective: 'Play the next correct move in the Italian Game.',
       difficulty: 'Beginner',
       theme: 'Opening',
+      mainLine: '1. e4 e5 2. Nf3 Nc6 3. Bc4',
+      why: 'It develops quickly, fights for the centre, and prepares early kingside pressure.',
       explanation: 'The Italian Game develops quickly and attacks the centre.'
     },
     {
@@ -282,6 +367,8 @@ const PRACTICE_LIBRARY = {
       objective: 'Play the next correct move in the Ruy Lopez.',
       difficulty: 'Beginner',
       theme: 'Opening',
+      mainLine: '1. e4 e5 2. Nf3 Nc6 3. Bb5',
+      why: 'It puts long-term pressure on the knight that defends Black’s centre.',
       explanation: 'The Ruy Lopez develops the bishop and pressures the knight defending e5.'
     },
     {
@@ -291,6 +378,8 @@ const PRACTICE_LIBRARY = {
       objective: "Play the next correct move in the Queen's Gambit.",
       difficulty: 'Beginner',
       theme: 'Opening',
+      mainLine: '1. d4 d5 2. c4',
+      why: 'It challenges Black’s central pawn and teaches strong queen-pawn structures.',
       explanation: "White challenges Black's centre early with c4."
     },
     {
@@ -300,6 +389,8 @@ const PRACTICE_LIBRARY = {
       objective: 'Play the next correct move in the London System.',
       difficulty: 'Beginner',
       theme: 'Opening',
+      mainLine: '1. d4 d5 2. Bf4 Nf6 3. e3',
+      why: 'It gives White a reliable setup with simple development plans.',
       explanation: 'The London System builds a solid setup around the dark-square bishop.'
     },
     {
@@ -309,6 +400,8 @@ const PRACTICE_LIBRARY = {
       objective: 'Play the next correct move in the Sicilian Defence line.',
       difficulty: 'Beginner',
       theme: 'Opening',
+      mainLine: '1. e4 c5 2. Nf3 d6 3. d4',
+      why: 'It shows how Black fights for the centre from the flank and creates imbalanced games.',
       explanation: 'The Sicilian fights for the centre from the flank.'
     }
   ]
@@ -482,7 +575,10 @@ function updateBoardControls() {
   const canViewHistory = isOnline || isAI;
   const showOnlineNewGame = isOnline && gameOver;
   const newGameBtn = document.getElementById('boardNewGameBtn');
+  const timerCard = document.getElementById('timerCard');
   const controlIds = ['boardUndoBtn', 'resetBoardViewBtn', 'boardFlipBtn', 'drawOfferBtn', 'boardResignBtn'];
+
+  if (timerCard) timerCard.style.display = isPractice ? 'none' : 'block';
 
   if (newGameBtn) {
     newGameBtn.style.display = !isReviewMode && (!isOnline || showOnlineNewGame) ? 'inline-flex' : 'none';
@@ -567,6 +663,12 @@ function renderBoard() {
       }
       if (practiceHintMove?.to?.row === dispRow && practiceHintMove.to.col === dispCol) {
         sq.classList.add('practice-hint-to');
+      }
+      if (practiceCorrectMove?.from?.row === dispRow && practiceCorrectMove.from.col === dispCol) {
+        sq.classList.add('practice-correct-from');
+      }
+      if (practiceCorrectMove?.to?.row === dispRow && practiceCorrectMove.to.col === dispCol) {
+        sq.classList.add('practice-correct-to');
       }
 
       // King in check highlight
@@ -2056,8 +2158,65 @@ function updateOnlineReviewControls() {
 
 function openPracticeModal() {
   if (gameMode === 'practice') updatePrimaryNavState('practice');
+  resetPracticeHubPanels();
+  populatePracticeOpeningChoiceList();
   const modal = document.getElementById('practiceModal');
   if (modal) modal.style.display = 'flex';
+}
+
+function resetPracticeHubPanels() {
+  ['practiceTacticsChooser', 'practiceMateChooser', 'practiceOpeningChooser'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+function showPracticeTacticsChoices() {
+  resetPracticeHubPanels();
+  const panel = document.getElementById('practiceTacticsChooser');
+  if (panel) panel.style.display = 'block';
+}
+
+function showPracticeMateChoices() {
+  resetPracticeHubPanels();
+  const panel = document.getElementById('practiceMateChooser');
+  if (panel) panel.style.display = 'block';
+}
+
+function showPracticeOpeningChoices() {
+  resetPracticeHubPanels();
+  populatePracticeOpeningChoiceList();
+  const panel = document.getElementById('practiceOpeningChooser');
+  if (panel) panel.style.display = 'block';
+}
+
+function populatePracticeOpeningChoiceList() {
+  const list = document.getElementById('practiceOpeningChoiceList');
+  if (!list) return;
+  list.innerHTML = '';
+  (PRACTICE_LIBRARY.opening || []).forEach((opening, index) => {
+    const btn = document.createElement('button');
+    btn.className = 'practice-opening-choice';
+    btn.innerHTML = `
+      <strong>${escapeHtml(opening.title)}</strong>
+      <span>${escapeHtml(opening.mainLine || '')}</span>
+      <em>${escapeHtml(opening.difficulty || 'Beginner')}</em>
+      <small>${escapeHtml(opening.why || opening.explanation || '')}</small>`;
+    btn.onclick = () => startOpeningPractice(index);
+    list.appendChild(btn);
+  });
+}
+
+function startMatePractice(depth) {
+  selectedMateDepth = Number(depth) || 1;
+  const mateSelect = document.getElementById('practiceMateSelect');
+  if (mateSelect) mateSelect.value = String(selectedMateDepth);
+  startPractice('mate');
+}
+
+function startOpeningPractice(index = 0) {
+  practiceChallengeIndex = Number(index) || 0;
+  startPractice('opening', null, practiceChallengeIndex);
 }
 
 function practiceLabel(type = practiceType) {
@@ -2069,18 +2228,21 @@ function practiceLabel(type = practiceType) {
   }[type] || 'Practice';
 }
 
-function startPractice(type) {
+function startPractice(type, difficulty = null, challengeIndex = 0) {
   if (gameMode === 'friend') exitFriendGame();
+  hideInGameChat();
   closeModal('practiceModal');
   stopTimers();
   gameMode = 'practice';
   practiceType = type;
-  practiceChallengeIndex = 0;
+  if (difficulty) practiceTacticDifficulty = difficulty;
+  practiceChallengeIndex = Number(challengeIndex) || 0;
   timerLimitSecs = 0;
   timerWhiteSecs = 0;
   timerBlackSecs = 0;
   isFlipped = false;
   showGamePage();
+  document.body?.classList.add('practice-mode');
   updatePrimaryNavState('practice');
   loadPracticeChallenge(selectPracticeChallenge(type));
   updateTimerControls();
@@ -2089,17 +2251,27 @@ function startPractice(type) {
 
 function selectPracticeChallenge(type) {
   const list = PRACTICE_LIBRARY[type] || [];
-  if (type === 'tactics') return list[Math.floor(Math.random() * list.length)] || null;
-  if (type === 'mate') return list.find(ch => Number(ch.mateIn || 1) === getSelectedMateDepth()) || list[0] || null;
+  if (type === 'tactics') {
+    const filtered = list.filter(ch => ch.difficulty === practiceTacticDifficulty);
+    const pool = filtered.length ? filtered : list;
+    return pool[practiceChallengeIndex % Math.max(1, pool.length)] || null;
+  }
+  if (type === 'dailyPuzzle') {
+    const day = Math.floor(Date.now() / 86400000);
+    practiceChallengeIndex = day % Math.max(1, list.length);
+    return list[practiceChallengeIndex] || null;
+  }
+  if (type === 'mate') return list.find(ch => Number(ch.mateIn || 1) === selectedMateDepth) || list[0] || null;
   return list[practiceChallengeIndex % Math.max(1, list.length)] || null;
 }
 
 function getSelectedMateDepth() {
-  return Number(document.getElementById('practiceMateSelect')?.value) || 1;
+  return selectedMateDepth;
 }
 
 function changePracticeMateDepth() {
   if (gameMode !== 'practice' || practiceType !== 'mate') return;
+  selectedMateDepth = Number(document.getElementById('practiceMateSelect')?.value) || 1;
   loadPracticeChallenge(selectPracticeChallenge('mate'));
 }
 
@@ -2124,9 +2296,19 @@ function changePracticeOpening() {
 
 function nextPracticeChallenge() {
   if (gameMode !== 'practice' || !practiceType) return;
-  const list = PRACTICE_LIBRARY[practiceType] || [];
+  const list = getPracticeChallengePool();
   practiceChallengeIndex = (practiceChallengeIndex + 1) % Math.max(1, list.length);
-  loadPracticeChallenge(selectPracticeChallenge(practiceType));
+  loadPracticeChallenge(list[practiceChallengeIndex] || selectPracticeChallenge(practiceType));
+}
+
+function getPracticeChallengePool() {
+  const list = PRACTICE_LIBRARY[practiceType] || [];
+  if (practiceType === 'tactics') {
+    const filtered = list.filter(ch => ch.difficulty === practiceTacticDifficulty);
+    return filtered.length ? filtered : list;
+  }
+  if (practiceType === 'mate') return list.filter(ch => Number(ch.mateIn || 1) === selectedMateDepth);
+  return list;
 }
 
 function restartPracticeChallenge() {
@@ -2142,6 +2324,8 @@ function loadPracticeChallenge(challenge) {
   practiceApplyingAutoMove = false;
   practiceMoveStartSnapshot = null;
   practiceHintMove = null;
+  practiceCorrectMove = null;
+  practiceAttempts = 0;
   selectedSq = null;
   legalMoves = [];
   gameOver = false;
@@ -2160,7 +2344,7 @@ function loadPracticeChallenge(challenge) {
     loadFenPosition(challenge.fen);
   }
 
-  setPracticeFeedback(practiceType === 'opening' ? 'Play the highlighted line one move at a time.' : 'Make the best move on the board.', 'neutral');
+  setPracticeFeedback(practiceType === 'opening' ? 'Play the highlighted line one move at a time.' : getPracticeInitialFeedback(), 'neutral');
   renderBoard();
   renderMoveHistory();
   updateStatusBar();
@@ -2239,17 +2423,19 @@ function handlePracticeMoveComplete(actualMove) {
 
 function checkPracticeMove(actualMove) {
   const expected = expectedPracticeMove();
+  practiceAttempts++;
   if (actualMove === expected) {
     practiceSolutionIndex++;
     practiceHintLevel = 0;
     practiceHintMove = null;
+    practiceCorrectMove = parseUCIMove(actualMove);
     practiceFeedbackState = 'correct';
-    setPracticeFeedback('Correct!', 'correct');
+    setPracticeFeedback(getPracticeCorrectMessage(), 'correct');
     if (practiceType === 'dailyPuzzle') {
-      localStorage.setItem(`digichessDailyPractice_${new Date().toISOString().slice(0, 10)}`, currentPracticeChallenge.id);
+      localStorage.setItem(todayPracticeKey(currentPracticeChallenge), 'solved');
     }
     updatePracticePanel(true);
-    if (practiceType === 'opening') {
+    if (practiceType === 'opening' || practiceType === 'mate') {
       maybeAutoPlayPracticeOpeningMove();
     }
     return true;
@@ -2257,8 +2443,9 @@ function checkPracticeMove(actualMove) {
 
   if (practiceMoveStartSnapshot) applyBoardSnapshotForDisplay(practiceMoveStartSnapshot);
   practiceHintMove = null;
+  practiceCorrectMove = null;
   practiceFeedbackState = 'incorrect';
-  setPracticeFeedback('Try again', 'incorrect');
+  setPracticeFeedback('Not quite. Try again.', 'incorrect');
   updatePracticePanel();
   return false;
 }
@@ -2271,7 +2458,7 @@ function setPracticeFeedback(message, state = 'neutral') {
 }
 
 function maybeAutoPlayPracticeOpeningMove() {
-  if (gameMode !== 'practice' || practiceType !== 'opening') return;
+  if (gameMode !== 'practice' || (practiceType !== 'opening' && practiceType !== 'mate')) return;
   const expected = expectedPracticeMove();
   if (!expected) {
     practiceFeedbackState = 'correct';
@@ -2285,7 +2472,7 @@ function maybeAutoPlayPracticeOpeningMove() {
     return;
   }
   setTimeout(() => {
-    if (gameMode !== 'practice' || practiceType !== 'opening' || expectedPracticeMove() !== expected) return;
+    if (gameMode !== 'practice' || (practiceType !== 'opening' && practiceType !== 'mate') || expectedPracticeMove() !== expected) return;
     practiceApplyingAutoMove = true;
     applyPracticeUciMove(expected);
     practiceApplyingAutoMove = false;
@@ -2324,7 +2511,14 @@ function updatePracticePanel(showExplanation = false) {
   setText('practiceTypeLabel', practiceLabel());
   setText('practiceTitle', currentPracticeChallenge.title || practiceLabel());
   setText('practiceObjective', currentPracticeChallenge.objective || 'Find the best move.');
-  setText('practiceMeta', [currentPracticeChallenge.difficulty, currentPracticeChallenge.theme].filter(Boolean).join(' • '));
+  setText('practiceMeta', getPracticeMetaText());
+  setText('practiceProgress', getPracticeProgressText());
+  const lesson = document.getElementById('practiceLessonNote');
+  if (lesson) {
+    const note = getPracticeLessonNote();
+    lesson.textContent = note;
+    lesson.style.display = note ? 'block' : 'none';
+  }
   const openingSelect = document.getElementById('practiceOpeningSelect');
   const mateSelect = document.getElementById('practiceMateSelect');
   if (openingSelect) {
@@ -2333,7 +2527,7 @@ function updatePracticePanel(showExplanation = false) {
   }
   if (mateSelect) {
     mateSelect.style.display = practiceType === 'mate' ? 'block' : 'none';
-    if (practiceType === 'mate') mateSelect.value = String(currentPracticeChallenge.mateIn || 1);
+    if (practiceType === 'mate') mateSelect.value = String(selectedMateDepth || currentPracticeChallenge.mateIn || 1);
   }
   const explanation = document.getElementById('practiceExplanation');
   if (explanation) {
@@ -2345,7 +2539,47 @@ function updatePracticePanel(showExplanation = false) {
   const restartBtn = document.getElementById('practiceRestartBtn');
   if (hintBtn) hintBtn.style.display = expectedPracticeMove() ? 'inline-flex' : 'none';
   if (nextBtn) nextBtn.style.display = practiceType === 'opening' ? 'none' : 'inline-flex';
+  if (nextBtn) nextBtn.textContent = 'Next Challenge';
   if (restartBtn) restartBtn.style.display = 'inline-flex';
+}
+
+function getPracticeInitialFeedback() {
+  if (practiceType === 'dailyPuzzle') return isDailyPracticeSolved(currentPracticeChallenge) ? 'Solved today. Try it again or move to another trainer.' : 'Today’s Puzzle is unsolved. Find the best move.';
+  return 'Make the best move on the board.';
+}
+
+function getPracticeCorrectMessage() {
+  if (practiceType === 'dailyPuzzle' || practiceType === 'tactics') return 'Correct! That move wins material.';
+  if (practiceType === 'mate') return expectedPracticeMove() ? 'Correct! Continue the mating sequence.' : 'Correct! Checkmate pattern complete.';
+  if (practiceType === 'opening') return expectedPracticeMove() ? 'Correct! Keep following the opening line.' : 'Correct! Opening lesson complete.';
+  return 'Correct!';
+}
+
+function getPracticeMetaText() {
+  const base = [currentPracticeChallenge.difficulty, currentPracticeChallenge.theme].filter(Boolean).join(' • ');
+  if (practiceType === 'dailyPuzzle') return `Today’s Puzzle • ${base} • ${isDailyPracticeSolved(currentPracticeChallenge) ? 'Solved' : 'Unsolved'} • Attempts: ${practiceAttempts}`;
+  if (practiceType === 'opening') return `${base} • Move ${Math.min(practiceSolutionIndex + 1, (currentPracticeChallenge.moves || []).length)} of ${(currentPracticeChallenge.moves || []).length}`;
+  return `${base} • Attempts: ${practiceAttempts}`;
+}
+
+function getPracticeProgressText() {
+  const pool = getPracticeChallengePool();
+  if (practiceType === 'opening') return `Move ${Math.min(practiceSolutionIndex + 1, (currentPracticeChallenge.moves || []).length)} of ${(currentPracticeChallenge.moves || []).length}`;
+  if (practiceType === 'mate') return `Mate in ${currentPracticeChallenge.mateIn || selectedMateDepth}`;
+  return `Puzzle ${Math.min(practiceChallengeIndex + 1, Math.max(1, pool.length))} of ${Math.max(1, pool.length)}`;
+}
+
+function getPracticeLessonNote() {
+  if (practiceType === 'opening') return `${currentPracticeChallenge.mainLine || ''} ${currentPracticeChallenge.why ? '• ' + currentPracticeChallenge.why : ''}`.trim();
+  return '';
+}
+
+function todayPracticeKey(challenge) {
+  return `digichessDailyPractice_${new Date().toISOString().slice(0, 10)}_${challenge?.id || 'daily'}`;
+}
+
+function isDailyPracticeSolved(challenge) {
+  return !!challenge && localStorage.getItem(todayPracticeKey(challenge)) === 'solved';
 }
 
 function rowColToAlgebraic(row, col) {
@@ -3282,6 +3516,7 @@ function setGameMode(mode) {
   if (gameMode === 'practice') {
     practiceType = null;
     currentPracticeChallenge = null;
+    document.body?.classList.remove('practice-mode');
     updatePracticePanel();
   }
   
