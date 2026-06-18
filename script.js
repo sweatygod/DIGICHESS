@@ -1839,17 +1839,73 @@ function classifyReviewMove(move) {
   return cycle[move.index % cycle.length];
 }
 
+function getReviewPlayerColor() {
+  if (gameMode === 'friend') return myColor === 'w' || myColor === 'b' ? myColor : null;
+  if (gameMode === 'ai') return 'w';
+  return null;
+}
+
+function reviewMoveImportanceScore(before, after, actualUci, notation) {
+  const parsed = parseUCIMove(actualUci);
+  if (!parsed) return 0;
+  let score = 0;
+  const movingPiece = before?.board?.[parsed.from.row]?.[parsed.from.col];
+  const targetPiece = before?.board?.[parsed.to.row]?.[parsed.to.col];
+  const pieceType = movingPiece ? getPieceType(movingPiece) : null;
+  const text = String(notation || '');
+
+  if (targetPiece || text.includes('x')) score += 5;
+  if (text.includes('+')) score += 4;
+  if (text.includes('#')) score += 8;
+  if (/O-O|0-0/.test(text)) score += 2;
+  if (actualUci.length > 4) score += 4;
+  if (pieceType === 'Q') score += 2;
+  if (pieceType === 'P' && (parsed.to.row === 0 || parsed.to.row === 7)) score += 4;
+  if (after?.gameOver) score += 6;
+
+  return score;
+}
+
+function selectImportantReviewMoves(moves) {
+  const MAX_REVIEW_MOVES = 8;
+  const MIN_REVIEW_MOVES = Math.min(5, moves.length);
+  if (moves.length <= 4) {
+    return moves.map((move, index) => ({ ...move, index }));
+  }
+
+  const scored = moves.map(move => ({ ...move, importance: reviewMoveImportanceScore(move.before, move.after, move.actualUci, move.notation) }));
+  const important = scored
+    .filter(move => move.importance > 0)
+    .sort((a, b) => b.importance - a.importance || a.index - b.index)
+    .slice(0, MAX_REVIEW_MOVES);
+
+  if (important.length < MIN_REVIEW_MOVES) {
+    const stride = Math.max(1, Math.floor(scored.length / MAX_REVIEW_MOVES));
+    for (let i = 0; i < scored.length && important.length < MAX_REVIEW_MOVES; i += stride) {
+      if (!important.some(move => move.index === scored[i].index)) important.push(scored[i]);
+    }
+  }
+
+  return important
+    .sort((a, b) => a.index - b.index)
+    .map((move, index) => ({ ...move, index }));
+}
+
 function buildReviewDataFromSnapshots(snapshots) {
   const rows = (snapshots || []).filter(Boolean).map(cloneBoardSnapshot);
+  const reviewColor = getReviewPlayerColor();
+  if (!reviewColor) return [];
   const moves = [];
   for (let i = 1; i < rows.length; i++) {
     const before = rows[i - 1];
     const after = rows[i];
     const actualUci = actualMoveFromSnapshots(before, after);
     if (!actualUci) continue;
+    if (before.currentTurn !== reviewColor) continue;
     moves.push({
       index: moves.length,
       moveNumber: Math.floor((i - 1) / 2) + 1,
+      color: before.currentTurn,
       side: before.currentTurn === 'w' ? 'White' : 'Black',
       notation: after.moveHistory?.[i - 1] || actualUci,
       actualUci,
@@ -1865,7 +1921,7 @@ function buildReviewDataFromSnapshots(snapshots) {
       analysisError: false
     });
   }
-  return moves;
+  return selectImportantReviewMoves(moves);
 }
 
 function buildOnlineReviewData() {
@@ -2012,11 +2068,11 @@ function updateReviewPanel() {
   if (next) next.disabled = currentReviewIndex >= reviewMoves.length - 1;
   if (actual) {
     actual.disabled = !move;
-    actual.textContent = reviewBoardView === 'actual' ? 'Back to Position' : 'Show Played Move';
+    actual.textContent = reviewBoardView === 'actual' ? 'Position' : 'Played Move';
   }
   if (best) {
     best.disabled = !move?.bestUci;
-    best.textContent = reviewBoardView === 'best' ? 'Back to Position' : 'Show Best Move';
+    best.textContent = reviewBoardView === 'best' ? 'Position' : 'Best Move';
   }
 }
 

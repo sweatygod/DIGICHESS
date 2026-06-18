@@ -1049,6 +1049,9 @@ button {
   white-space: normal;
   line-height: 1.2;
 }
+.review-exit-btn {
+  grid-column: 1 / -1;
+}
 .move-list-header {
   display: grid;
   grid-template-columns: 28px 1fr 1fr;
