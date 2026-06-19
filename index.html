@@ -778,6 +778,26 @@
       <h2 class="modal-title">Account Settings</h2>
       <p class="modal-sub" id="accountModalSub"></p>
 
+      <!-- Profile Avatar -->
+      <div class="account-section">
+        <h3 class="account-section-title">Profile Avatar</h3>
+        <div class="profile-avatar-row">
+          <span class="profile-avatar-preview" id="profileAvatarPreview"></span>
+          <div class="profile-avatar-fields">
+            <p class="profile-avatar-help">Choose a DigiChess avatar. No uploads or storage plan required.</p>
+          </div>
+        </div>
+        <div class="profile-avatar-grid" id="profileAvatarGrid"></div>
+        <div id="profileAvatarError" class="auth-error" style="display:none;"></div>
+        <div id="profileAvatarSuccess" class="account-success" style="display:none;"></div>
+        <div class="profile-avatar-actions">
+          <button class="btn btn-primary account-action-btn" id="profileAvatarSaveBtn" onclick="savePresetAvatar()">Save Avatar</button>
+          <button class="btn btn-ghost account-action-btn" id="profileAvatarRemoveBtn" onclick="removePresetAvatar()">Use Initial</button>
+        </div>
+      </div>
+
+      <div class="account-divider"></div>
+
       <!-- Change Username -->
       <div class="account-section">
         <h3 class="account-section-title">Change Username</h3>

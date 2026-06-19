@@ -12,6 +12,10 @@
           ".read": "auth != null",
           ".write": "$uid === auth.uid"
         },
+        "avatarId": {
+          ".read": "auth != null",
+          ".write": "$uid === auth.uid"
+        },
         "stats": {
           ".read": "auth != null",
           ".write": "$uid === auth.uid"

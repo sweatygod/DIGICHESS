@@ -15,6 +15,22 @@ const DIGICHAT_NAME = 'DIGICHAT';
 const STARTING_ELO = 400;
 const MIN_ELO = 100;
 const ELO_K_FACTOR = 32;
+const AVATAR_PRESETS = [
+  { id: 'king', icon: '♔', bg: 'linear-gradient(145deg, #f8fafc, #64748b)' },
+  { id: 'queen', icon: '♕', bg: 'linear-gradient(145deg, #fef3c7, #b45309)' },
+  { id: 'rook', icon: '♜', bg: 'linear-gradient(145deg, #d1d5db, #374151)' },
+  { id: 'bishop', icon: '♗', bg: 'linear-gradient(145deg, #a7f3d0, #047857)' },
+  { id: 'knight', icon: '♞', bg: 'linear-gradient(145deg, #86efac, #166534)' },
+  { id: 'pawn', icon: '♟', bg: 'linear-gradient(145deg, #c4b5fd, #6d28d9)' },
+  { id: 'trophy', icon: '🏆', bg: 'linear-gradient(145deg, #fde68a, #ca8a04)' },
+  { id: 'target', icon: '◎', bg: 'linear-gradient(145deg, #93c5fd, #1d4ed8)' },
+  { id: 'fire', icon: '◆', bg: 'linear-gradient(145deg, #fb7185, #be123c)' },
+  { id: 'leaf', icon: '♧', bg: 'linear-gradient(145deg, #bbf7d0, #15803d)' },
+  { id: 'star', icon: '★', bg: 'linear-gradient(145deg, #fef08a, #854d0e)' },
+  { id: 'bolt', icon: '↯', bg: 'linear-gradient(145deg, #67e8f9, #0e7490)' }
+];
+let currentUserAvatarId = null;
+let selectedAvatarId = null;
 
 // Initialize Firebase when ready
 function initFirebase() {
@@ -25,7 +41,6 @@ function initFirebase() {
         authDomain: "digichess-e858b.firebaseapp.com",
         projectId: "digichess-e858b",
         databaseURL: "https://digichess-e858b-default-rtdb.asia-southeast1.firebasedatabase.app",
-        storageBucket: "digichess-e858b.firebasestorage.app",
         messagingSenderId: "689026321934",
         appId: "1:689026321934:web:a3656a9dcf581ab727b65f"
       };
@@ -49,7 +64,11 @@ function initFirebase() {
           }
           const displayName = username || 'Player';
           currentUsername = displayName;
+          currentUserAvatarId = null;
           updateAccountUI(displayName);
+          if (!user.isAnonymous) {
+            loadUserAvatar(user.uid).catch(err => console.warn('Unable to load avatar:', err));
+          }
           if (!user.isAnonymous) {
             ensureUserElo(displayName).catch(err => console.warn('Unable to initialise Elo:', err));
           }
@@ -68,6 +87,8 @@ function initFirebase() {
         stopFriendRequestNotifListener();
         stopActiveDmChatListener();
         currentUsername = null;
+        currentUserAvatarId = null;
+        selectedAvatarId = null;
         currentUser = null;
         updateAccountUI(null);
       }
@@ -3909,8 +3930,8 @@ function updateAccountUI(username) {
 
   if (username) {
     const isGuest = currentUser && currentUser.isAnonymous;
-    avatar.textContent  = isGuest ? '?' : username.charAt(0).toUpperCase();
-    avatar.style.background = isGuest ? 'var(--text-muted)' : '';
+    updateAccountAvatar(currentUserAvatarId, username);
+    if (isGuest && avatar) avatar.style.backgroundColor = 'var(--text-muted)';
     nameEl.textContent  = isGuest ? `${username} (Guest)` : username;
     widget.style.display    = 'flex';
     signInBtn.style.display = 'none';
@@ -3929,6 +3950,169 @@ function updateAccountUI(username) {
   } else {
     widget.style.display    = 'none';
     signInBtn.style.display = 'inline-flex';
+  }
+}
+
+function getAvatarPreset(avatarId = currentUserAvatarId) {
+  return AVATAR_PRESETS.find(avatar => avatar.id === avatarId) || null;
+}
+
+function avatarInitial(username = currentUsername || 'Player') {
+  const isGuest = currentUser && currentUser.isAnonymous;
+  return isGuest ? '?' : String(username || 'Player').charAt(0).toUpperCase();
+}
+
+function updateAccountAvatar(avatarId = currentUserAvatarId, username = currentUsername || 'Player') {
+  const avatar = document.getElementById('accountAvatar');
+  if (!avatar) return;
+  const isGuest = currentUser && currentUser.isAnonymous;
+  const preset = !isGuest ? getAvatarPreset(avatarId) : null;
+
+  avatar.classList.toggle('has-preset', !!preset);
+  if (preset) {
+    avatar.textContent = preset.icon;
+    avatar.style.setProperty('--avatar-bg', preset.bg);
+    avatar.style.backgroundColor = '';
+  } else {
+    avatar.textContent = avatarInitial(username);
+    avatar.style.removeProperty('--avatar-bg');
+    avatar.style.backgroundColor = isGuest ? 'var(--text-muted)' : '';
+  }
+
+  updateAvatarPreview(avatarId, username);
+}
+
+function updateAvatarPreview(avatarId = selectedAvatarId ?? currentUserAvatarId, username = currentUsername || 'Player') {
+  const preview = document.getElementById('profileAvatarPreview');
+  if (!preview) return;
+  const isGuest = currentUser && currentUser.isAnonymous;
+  const preset = !isGuest ? getAvatarPreset(avatarId) : null;
+
+  preview.classList.toggle('has-preset', !!preset);
+  if (preset) {
+    preview.textContent = preset.icon;
+    preview.style.setProperty('--avatar-bg', preset.bg);
+    preview.style.backgroundColor = '';
+  } else {
+    preview.textContent = avatarInitial(username);
+    preview.style.removeProperty('--avatar-bg');
+    preview.style.backgroundColor = isGuest ? 'var(--text-muted)' : '';
+  }
+}
+
+function renderAvatarPicker() {
+  const grid = document.getElementById('profileAvatarGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  AVATAR_PRESETS.forEach(preset => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'profile-avatar-choice';
+    btn.dataset.avatarId = preset.id;
+    btn.textContent = preset.icon;
+    btn.title = preset.id.charAt(0).toUpperCase() + preset.id.slice(1);
+    btn.style.setProperty('--avatar-bg', preset.bg);
+    btn.onclick = () => handlePresetAvatarSelected(preset.id);
+    grid.appendChild(btn);
+  });
+  updateAvatarPickerSelection();
+}
+
+function updateAvatarPickerSelection() {
+  document.querySelectorAll('.profile-avatar-choice').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.avatarId === selectedAvatarId);
+  });
+}
+
+function handlePresetAvatarSelected(avatarId) {
+  selectedAvatarId = getAvatarPreset(avatarId) ? avatarId : null;
+  setAvatarMessage('error', '');
+  updateAvatarPreview(selectedAvatarId);
+  updateAvatarPickerSelection();
+}
+
+async function loadUserAvatar(uid = currentUser?.uid) {
+  if (!uid || !db || currentUser?.isAnonymous) {
+    currentUserAvatarId = null;
+    selectedAvatarId = null;
+    updateAccountAvatar(null);
+    return null;
+  }
+
+  const snap = await db.ref(`users/${uid}/avatarId`).once('value');
+  const avatarId = getAvatarPreset(snap.val()) ? snap.val() : null;
+  currentUserAvatarId = avatarId;
+  selectedAvatarId = avatarId;
+  updateAccountAvatar(currentUserAvatarId);
+  updateAvatarPickerSelection();
+  return currentUserAvatarId;
+}
+
+function setAvatarMessage(type, message) {
+  const errorEl = document.getElementById('profileAvatarError');
+  const successEl = document.getElementById('profileAvatarSuccess');
+  if (errorEl) errorEl.style.display = 'none';
+  if (successEl) successEl.style.display = 'none';
+  const target = type === 'success' ? successEl : errorEl;
+  if (!target || !message) return;
+  target.textContent = message;
+  target.style.display = 'block';
+}
+
+async function savePresetAvatar() {
+  const errorEl = document.getElementById('profileAvatarError');
+  const btn = document.getElementById('profileAvatarSaveBtn');
+
+  if (!currentUser || currentUser.isAnonymous) return showAuthError(errorEl, 'Create an account before choosing a profile avatar.');
+  if (!selectedAvatarId) return showAuthError(errorEl, 'Choose an avatar first.');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+  }
+  setAvatarMessage('error', '');
+
+  try {
+    await db.ref(`users/${currentUser.uid}/avatarId`).set(selectedAvatarId);
+    currentUserAvatarId = selectedAvatarId;
+    updateAccountAvatar(currentUserAvatarId);
+    setAvatarMessage('success', 'Profile avatar updated!');
+  } catch (err) {
+    console.error('Profile avatar save failed:', err);
+    setAvatarMessage('error', 'Unable to save your avatar right now. Please try again.');
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Save Avatar';
+  }
+}
+
+async function removePresetAvatar() {
+  const errorEl = document.getElementById('profileAvatarError');
+  const btn = document.getElementById('profileAvatarRemoveBtn');
+
+  if (!currentUser || currentUser.isAnonymous) return showAuthError(errorEl, 'Guest accounts cannot change profile avatars.');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+  }
+  setAvatarMessage('error', '');
+
+  try {
+    await db.ref(`users/${currentUser.uid}/avatarId`).remove();
+    currentUserAvatarId = null;
+    selectedAvatarId = null;
+    updateAccountAvatar(null);
+    updateAvatarPickerSelection();
+    setAvatarMessage('success', 'Profile avatar reset to your initial.');
+  } catch (err) {
+    console.error('Profile avatar reset failed:', err);
+    setAvatarMessage('error', 'Unable to reset your avatar right now. Please try again.');
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Use Initial';
   }
 }
 
@@ -4150,21 +4334,27 @@ function openAccountModal() {
   const ownerWrap = document.getElementById('ownerPinSectionWrap');
   if (ownerWrap) ownerWrap.style.display = 'none';
   // Reset all fields and messages
+  selectedAvatarId = currentUserAvatarId;
   ['newUsernameInput','newPasswordInput','ownerPinInput']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  ['changeUsernameError','changeUsernameSuccess','changePasswordError','changePasswordSuccess','ownerPinError','ownerPinSuccess','deleteAccountError']
+  ['profileAvatarError','profileAvatarSuccess','changeUsernameError','changeUsernameSuccess','changePasswordError','changePasswordSuccess','ownerPinError','ownerPinSuccess','deleteAccountError']
     .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
-  ['changeUsernameBtn','changePasswordBtn','ownerPinBtn','deleteAccountBtn']
+  ['profileAvatarSaveBtn','profileAvatarRemoveBtn','changeUsernameBtn','changePasswordBtn','ownerPinBtn','deleteAccountBtn']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.disabled = false;
-        el.textContent = { changeUsernameBtn:'Update Username', changePasswordBtn:'Update Password', ownerPinBtn:'Confirm PIN', deleteAccountBtn:'Delete Account' }[id];
+        el.textContent = { profileAvatarSaveBtn:'Save Avatar', profileAvatarRemoveBtn:'Use Initial', changeUsernameBtn:'Update Username', changePasswordBtn:'Update Password', ownerPinBtn:'Confirm PIN', deleteAccountBtn:'Delete Account' }[id];
       }
     });
 
   const sub = document.getElementById('accountModalSub');
   if (sub) sub.textContent = `Signed in as: ${currentUsername}`;
+  renderAvatarPicker();
+  updateAvatarPreview();
+  if (currentUser && !currentUser.isAnonymous) {
+    loadUserAvatar().catch(err => console.warn('Unable to refresh avatar:', err));
+  }
 
   document.getElementById('accountModal').style.display = 'flex';
 }
