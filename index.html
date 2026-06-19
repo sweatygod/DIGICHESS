@@ -784,14 +784,15 @@
         <div class="profile-avatar-row">
           <span class="profile-avatar-preview" id="profileAvatarPreview"></span>
           <div class="profile-avatar-fields">
-            <p class="profile-avatar-help">Choose a DigiChess avatar. No uploads or storage plan required.</p>
+            <p class="profile-avatar-help">Choose a DigiChess avatar.</p>
           </div>
         </div>
-        <div class="profile-avatar-grid" id="profileAvatarGrid"></div>
+        <div class="profile-avatar-grid" id="profileAvatarGrid" style="display:none;"></div>
         <div id="profileAvatarError" class="auth-error" style="display:none;"></div>
         <div id="profileAvatarSuccess" class="account-success" style="display:none;"></div>
         <div class="profile-avatar-actions">
-          <button class="btn btn-primary account-action-btn" id="profileAvatarSaveBtn" onclick="savePresetAvatar()">Save Avatar</button>
+          <button class="btn btn-primary account-action-btn" id="profileAvatarChangeBtn" onclick="openAvatarPicker()">Change Avatar</button>
+          <button class="btn btn-primary account-action-btn" id="profileAvatarSaveBtn" onclick="savePresetAvatar()" style="display:none;">Save Avatar</button>
           <button class="btn btn-ghost account-action-btn" id="profileAvatarRemoveBtn" onclick="removePresetAvatar()">Use Initial</button>
         </div>
       </div>
